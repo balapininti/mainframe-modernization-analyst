@@ -67,6 +67,14 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(classify("       MOVE A TO B.\n", "PARA.cpy"), "copybook")
         self.assertEqual(classify("random words here\n", "NOTES"), "unknown")
 
+    def test_jcl_with_mostly_inline_data_stays_jcl(self):
+        text = "//J1 JOB (A)\n//S EXEC PGM=IDCAMS\n//SYSIN DD *\n" + " DEFINE CLUSTER (NAME(A))\n" * 9 + "/*\n"
+        self.assertEqual(classify(text, "X"), "jcl_job")
+
+    def test_proc_with_mostly_inline_data_stays_jcl(self):
+        text = "//P1 PROC\n//S EXEC PGM=IDCAMS\n//SYSIN DD *\n" + " DEFINE CLUSTER (NAME(A))\n" * 9 + "/*\n"
+        self.assertEqual(classify(text, "X"), "jcl_proc")
+
     def test_dclgen_is_a_copybook(self):
         self.assertEqual(classify(" EXEC SQL DECLARE T1 TABLE (A INT) END-EXEC.\n", "D"), "copybook")
 

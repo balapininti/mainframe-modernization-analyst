@@ -123,7 +123,7 @@ _RULES = [
 def classify(text, name=""):
     upper = ascii_upper(text)
     significant = [l for l in split_lines(upper) if l.strip() and not l.startswith("//*")]
-    if significant and sum(1 for l in significant if l.startswith("//")) >= max(1, len(significant) // 2):
+    if significant and significant[0].startswith("//"):
         return "jcl_job" if re.search(r"^//\S*\s+JOB\b", upper, re.M) else "jcl_proc"
     for kind, pattern in _RULES:
         if pattern.search(upper):
