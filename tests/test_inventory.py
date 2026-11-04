@@ -91,6 +91,20 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(first, tree_snapshot(self.ws.out))
 
 
+class ParallelFallbackTests(unittest.TestCase):
+    def test_broken_worker_pool_falls_back_to_one_process(self):
+        import concurrent.futures
+        from unittest import mock
+        import mma.inventory as inventory
+
+        ws, _ = sample_workspace(self)
+        with mock.patch.object(inventory, "PARALLEL_THRESHOLD", 1), mock.patch.object(
+            concurrent.futures, "ProcessPoolExecutor", side_effect=OSError("not allowed")
+        ):
+            summary = run_inventory(ws)
+        self.assertEqual(summary["file_counts"]["cobol_program"], 5)
+
+
 class MapTests(unittest.TestCase):
     def setUp(self):
         self.ws, self.src = sample_workspace(self)

@@ -1,5 +1,6 @@
 """Stage 1: catalogue every source member, reusing parsed results for unchanged files."""
 import concurrent.futures
+import concurrent.futures.process
 import hashlib
 import os
 import re
@@ -139,8 +140,11 @@ def run_inventory(ws):
             % ", ".join(ws.config["source_roots"]))
     workers = ws.config["jobs"] or (os.cpu_count() or 1)
     if len(jobs) >= PARALLEL_THRESHOLD and workers > 1:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
-            analyzed = list(pool.map(_analyze, jobs, chunksize=64))
+        try:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+                analyzed = list(pool.map(_analyze, jobs, chunksize=64))
+        except (OSError, RuntimeError, concurrent.futures.process.BrokenProcessPool):
+            analyzed = [_analyze(job) for job in jobs]
     else:
         analyzed = [_analyze(job) for job in jobs]
     for sha, result in analyzed:
