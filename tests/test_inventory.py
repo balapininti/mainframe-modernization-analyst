@@ -105,6 +105,17 @@ class ParallelFallbackTests(unittest.TestCase):
         self.assertEqual(summary["file_counts"]["cobol_program"], 5)
 
 
+class ParseFailureTests(unittest.TestCase):
+    def test_one_bad_file_does_not_stop_the_run(self):
+        from unittest import mock
+        import mma.inventory as inventory
+
+        ws, _ = sample_workspace(self)
+        with mock.patch.object(inventory, "parse_text", side_effect=MemoryError("boom")):
+            run_inventory(ws)
+        self.assertTrue(all(m.get("parse_error") for m in load_catalogue(ws) if m["kind"] == "cobol_program"))
+
+
 class MapTests(unittest.TestCase):
     def setUp(self):
         self.ws, self.src = sample_workspace(self)

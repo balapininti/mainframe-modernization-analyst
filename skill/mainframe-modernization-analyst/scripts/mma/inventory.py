@@ -50,7 +50,7 @@ def _analyze(job):
     try:
         facts = parse_text(kind, decoded.text)
         failed = False
-    except (ValueError, IndexError, KeyError, TypeError, AttributeError) as exc:
+    except Exception as exc:  # one unparseable member must not stop a run over the whole system
         facts, failed = {}, type(exc).__name__
     return sha, {
         "kind": kind, "encoding": decoded.encoding, "line_count": len(split_lines(decoded.text)), "facts": facts,

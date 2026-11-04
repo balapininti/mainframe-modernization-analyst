@@ -54,7 +54,7 @@ def _parse_ddl(upper):
 
 def _parse_idcams(upper):
     datasets = []
-    for m in re.finditer(r"\bDEFINE\s+(?:CLUSTER|AIX|ALTERNATEINDEX)\b[^)]*?\bNAME\s*\(\s*([^)\s]+)", upper):
+    for m in re.finditer(r"\bDEFINE\s+(?:CLUSTER|AIX|ALTERNATEINDEX|PATH)\b[^)]*?\bNAME\s*\(\s*([^)\s]+)", upper):
         if m.group(1) not in datasets:
             datasets.append(m.group(1))
     return {"datasets": datasets}

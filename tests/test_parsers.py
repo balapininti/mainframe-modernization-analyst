@@ -120,6 +120,28 @@ class CobolTests(unittest.TestCase):
         text = "       PROCEDURE DIVISION.\n       A.\n           EXEC SQL DECLARE C CURSOR FOR SELECT X\n           FROM T9 FOR UPDATE OF X END-EXEC.\n"
         self.assertEqual(parse_cobol(text)["sql"][0]["tables"], ["T9"])
 
+    DYN = (
+        "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n"
+        "       01 WS-CONST PIC X(8) VALUE 'REALPGM'.\n       01 WS-MSG PIC X(30) VALUE 'NOT A PROGRAM NAME'.\n"
+        "       01 WS-PGM PIC X(8).\n       01 WS-OTHER PIC X(8).\n       01 WS-TEXT PIC X(30).\n"
+        "       PROCEDURE DIVISION.\n       A.\n"
+        "           IF X = 1\n              MOVE 'NOPE' TO WS-OTHER\n"
+        "              MOVE 'BAD WORDS HERE' TO WS-PGM\n"
+        "              MOVE WS-CONST TO WS-PGM\n              MOVE 'LIT2' TO WS-OTHER WS-PGM\n"
+        "              DISPLAY WS-PGM\n           END-IF\n"
+        "           EXEC CICS XCTL PROGRAM(WS-PGM) END-EXEC.\n"
+    )
+
+    def test_move_only_reaches_its_own_targets(self):
+        stmt = parse_cobol(self.DYN)["cics"][0]
+        self.assertNotIn("NOPE", stmt["resolved"]["PROGRAM"])
+
+    def test_move_with_several_targets_and_constant_hop(self):
+        self.assertEqual(sorted(parse_cobol(self.DYN)["cics"][0]["resolved"]["PROGRAM"]), ["LIT2", "REALPGM"])
+
+    def test_values_that_cannot_be_names_are_ignored(self):
+        self.assertNotIn("BAD WORDS HERE", parse_cobol(self.DYN)["cics"][0]["resolved"]["PROGRAM"])
+
     def test_decisions_counted(self):
         self.assertEqual(self.bill["metrics"]["decisions"], 4)
 
@@ -190,6 +212,12 @@ class DefinitionTests(unittest.TestCase):
 
     def test_ddl_drops_schema(self):
         self.assertEqual(parse_definitions(read("defs", "orders.ddl"), "ddl")["tables"], ["ORDERS"])
+
+    def test_idcams_path_is_a_definition(self):
+        text = "  DEFINE PATH (NAME(A.B.PATH) PATHENTRY(A.B.AIX))\n"
+        self.assertEqual(parse_definitions(text, "idcams")["datasets"], ["A.B.PATH"])
+        job = "//J JOB\n//S EXEC PGM=IDCAMS\n//SYSIN DD *\n" + text + "/*\n"
+        self.assertIn("A.B.PATH", parse_jcl(job)["defined_datasets"])
 
     def test_idcams(self):
         self.assertEqual(parse_definitions(read("defs", "price.idcams"), "idcams")["datasets"], ["PROD.PRICE.KSDS"])

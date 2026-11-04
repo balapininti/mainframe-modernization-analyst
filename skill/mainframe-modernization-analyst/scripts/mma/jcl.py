@@ -159,7 +159,7 @@ def parse_jcl(text):
                 run = re.search(r"\bRUN\s+PROGRAM\s*\(\s*([A-Z0-9#@$]+)", upper)
                 if run:
                     step["run_program"] = run.group(1)
-                for definition in re.finditer(r"\bDEFINE\s+(?:CLUSTER|AIX|ALTERNATEINDEX)\b[^)]*?\bNAME\s*\(\s*([^)\s]+)", upper):
+                for definition in re.finditer(r"\bDEFINE\s+(?:CLUSTER|AIX|ALTERNATEINDEX|PATH)\b[^)]*?\bNAME\s*\(\s*([^)\s]+)", upper):
                     if definition.group(1) not in result["defined_datasets"]:
                         result["defined_datasets"].append(definition.group(1))
                 if re.search(r"^\s*(?:SORT|MERGE)\s+FIELDS|^\s*(?:INCLUDE|OMIT)\s+COND", upper, re.M):

@@ -1,4 +1,6 @@
 """Extract structural facts from a COBOL program. Facts only, with line numbers."""
+import re as _plain_re
+
 from .sourcefile import cobol_regex as re, ascii_upper, logical_source, split_lines
 
 WORD = r"[A-Z0-9][A-Z0-9-]*"
@@ -77,24 +79,65 @@ def _find_includes(raw_text, src):
     return sorted(copies, key=lambda c: (c["line"], c["name"]))
 
 
-def _value_candidates(variable, src, cache):
-    """Literal values a data item can hold, from VALUE clauses and MOVEs in this program."""
-    if variable in cache:
-        return cache[variable]
-    cache[variable] = []
-    found = set()
-    name = re.escape(variable)
-    for m in re.finditer(r"\b" + name + r"\b(?![-A-Z0-9])[^.]*?\bVALUE\s+(?:IS\s+)?(['\"]_*['\"])", src.masked):
-        found.add(_strip_literal(src.text[m.start(1):m.end(1)]))
-    for m in re.finditer(r"\bMOVE\s+(['\"]_*['\"]|" + WORD + r")\s+TO\b[^.]*?(?<![-A-Z0-9])" + name + r"(?![-A-Z0-9])", src.masked):
+_NON_TARGET_WORDS = {
+    "ACCEPT", "ADD", "ALTER", "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE", "DELETE", "DISPLAY", "DIVIDE", "ELSE",
+    "END-EVALUATE", "END-EXEC", "END-IF", "END-PERFORM", "END-READ", "EVALUATE", "EXEC", "EXIT", "GO", "GOBACK", "IF",
+    "INITIALIZE", "INSPECT", "MOVE", "MULTIPLY", "NEXT", "OPEN", "PERFORM", "READ", "RELEASE", "RETURN", "REWRITE",
+    "SEARCH", "SET", "SORT", "START", "STOP", "STRING", "SUBTRACT", "UNSTRING", "WHEN", "WRITE", "AT", "NOT", "INVALID",
+}
+_NAME_VALUE = _plain_re.compile(r"[A-Z0-9#@$]{1,8}")
+_TARGET = _plain_re.compile(r"(" + WORD + r")\s*(?:\([^)]*\)\s*)?(?:(?:OF|IN)\s+" + WORD + r"\s*)?,?\s*")
+
+
+def _value_table(src):
+    """Build, once per program, the literals and other items that each data item can receive."""
+    values, moves = {}, {}
+    data_start = re.search(r"\bDATA\s+DIVISION\b", src.masked)
+    proc_start = re.search(r"\bPROCEDURE\s+DIVISION\b", src.masked)
+    begin = data_start.end() if data_start else 0
+    end = proc_start.start() if proc_start else len(src.masked)
+    for m in re.finditer(r"\b\d{1,2}\s+(" + WORD + r")\b[^.]*?\bVALUE\s+(?:IS\s+)?(['\"]_*['\"])", src.masked[begin:end]):
+        literal = _strip_literal(src.text[begin + m.start(2):begin + m.end(2)])
+        values.setdefault(m.group(1), set()).add(literal)
+    scan = src.masked[end:]
+    for m in re.finditer(r"\bMOVE\s+(['\"]_*['\"]|" + WORD + r")\s+TO\s+", scan):
         token = m.group(1)
+        source = None
         if token[0] in "'\"":
-            found.add(_strip_literal(src.text[m.start(1):m.end(1)]))
-        elif token != variable:
-            found.update(_value_candidates(token, src, cache))
-    result = sorted(ascii_upper(v) for v in found if v)
-    cache[variable] = result
-    return result
+            literal = _strip_literal(src.text[end + m.start(1):end + m.end(1)])
+        else:
+            literal, source = None, token
+        position = m.end()
+        while True:
+            word = _TARGET.match(scan, position)
+            if not word or word.group(1) in _NON_TARGET_WORDS:
+                break
+            entry = moves.setdefault(word.group(1), {"literals": set(), "sources": set()})
+            if literal is not None:
+                entry["literals"].add(literal)
+            else:
+                entry["sources"].add(source)
+            position = word.end()
+    return values, moves
+
+
+def _value_candidates(variable, src, cache):
+    """Program-name-shaped literals a data item can hold, from its VALUE and the MOVEs into it."""
+    if "__table__" not in cache:
+        cache["__table__"] = _value_table(src)
+    values, moves = cache["__table__"]
+    found, seen, pending = set(), set(), [variable]
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        found.update(values.get(name, ()))
+        entry = moves.get(name)
+        if entry:
+            found.update(entry["literals"])
+            pending.extend(entry["sources"])
+    return sorted(v for v in (ascii_upper(f or "") for f in found) if _NAME_VALUE.fullmatch(v))
 
 
 def _calls(src, cache):
