@@ -134,9 +134,9 @@ def _nodes_for(ws, kind, name):
         return ["program:" + p for p in _slice_programs(ws, name)]
     if kind in ("program", "flow"):
         return ["program:" + name]
-    if kind == "copybook":
-        return ["copybook:" + name]
-    raise RecordError("Status can be checked for a program, copybook, flow or slice.")
+    if kind in ("copybook", "job", "proc"):
+        return ["%s:%s" % (kind, name)]
+    raise RecordError("Status can be checked for a program, copybook, job, proc, flow or slice.")
 
 
 def status(ws, kind, name):
