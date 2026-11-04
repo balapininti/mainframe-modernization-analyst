@@ -18,6 +18,45 @@ EXTENSION_KINDS = {
 }
 
 
+class cobol_regex:
+    """`re` with word boundaries that treat COBOL's hyphen as part of a word.
+
+    Plain `\\b` would find CALL inside WS-CALL. Use on `LogicalSource.masked` text.
+    """
+
+    S, M = re.S, re.M
+    _BOUNDARY = r"(?:(?<![A-Z0-9_-])(?=[A-Z0-9_-])|(?<=[A-Z0-9_-])(?![A-Z0-9_-]))"
+    _cache = {}
+    escape = staticmethod(re.escape)
+
+    @classmethod
+    def compile(cls, pattern, flags=0):
+        key = (pattern, flags)
+        if key not in cls._cache:
+            cls._cache[key] = re.compile(pattern.replace(r"\b", cls._BOUNDARY), flags)
+        return cls._cache[key]
+
+    @classmethod
+    def finditer(cls, pattern, text, flags=0):
+        return cls.compile(pattern, flags).finditer(text)
+
+    @classmethod
+    def search(cls, pattern, text, flags=0):
+        return cls.compile(pattern, flags).search(text)
+
+    @classmethod
+    def match(cls, pattern, text, flags=0):
+        return cls.compile(pattern, flags).match(text)
+
+    @classmethod
+    def findall(cls, pattern, text, flags=0):
+        return cls.compile(pattern, flags).findall(text)
+
+    @staticmethod
+    def sub(pattern, repl, text):
+        return re.sub(pattern, repl, text)
+
+
 def ascii_upper(text):
     """Uppercase ASCII only, so that string offsets never shift."""
     return text.translate(_ASCII_UPPER)
