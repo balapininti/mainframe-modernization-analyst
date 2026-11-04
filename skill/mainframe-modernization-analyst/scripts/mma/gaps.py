@@ -1,6 +1,8 @@
 """Missing information: one file per gap, stable IDs, merged with what people have answered."""
+import datetime
 import glob
 import hashlib
+import re
 
 from .config import read_json, write_json
 from .depmap import load_map
@@ -22,6 +24,10 @@ KIND_TEXT = {
     "unrecognized_files": ("Confirmation of what these files are", "They didn't match any known mainframe source type, so they aren't in the analysis."),
     "duplicate_member": ("Which copy is the right one", "Copies with the same name differ, so links to this name can't be trusted until a rule is set."),
 }
+
+
+class RecordError(Exception):
+    """Input the skill refuses. The message tells the person what to fix."""
 
 
 def gap_id(kind, name):
@@ -128,8 +134,8 @@ def detect_gaps(ws):
     existing = {g["id"]: g for g in load_gaps(ws)}
     for gid, gap in detected.items():
         old = existing.get(gid)
-        if old and old["status"] in ("answered", "conflict"):
-            for key in ("status", "answer", "answered_by", "answered_on"):
+        if old and (old["status"] in ("answered", "conflict") or old.get("resolved_by")):
+            for key in ("status", "answer", "answered_by", "answered_on", "resolution", "resolved_by", "decision", "resolved_on"):
                 if key in old:
                     gap[key] = old[key]
         save_gap(ws, gap)
@@ -151,3 +157,83 @@ def detect_gaps(ws):
     ws.logger.event("gaps", by_kind=by_kind, by_owner=by_owner, open=open_count, resolved=resolved)
     return {"open": open_count, "resolved": resolved, "by_kind": by_kind, "by_owner": by_owner}
 
+
+
+COBOL_TERMS = re.compile(
+    r"\b\d{3,4}-[A-Z]|\bWS-[A-Z]|\bPERFORM\b|\bCOMP-3\b|\bPIC\b|\bMOVE\b|\bCOPYBOOK\b|\bEXEC\s+(?:CICS|SQL)\b|\bJCL\b|\bVSAM\b"
+    r"|\bCOBOL\b|\bREDEFINES\b|\bGO TO\b|\bSQLCODE\b|\bDFH[A-Z]|\bCOMMAREA\b")
+
+
+def has_cobol_terms(text):
+    return bool(COBOL_TERMS.search(text or ""))
+
+
+def add_sme_question(ws, question, example, depends_on, references=None, blocks=None):
+    """A business question for an SME. The code reference is kept for the developer, not the SME."""
+    if not question or not example or not depends_on:
+        raise RecordError("An SME question needs the question, a real example, and what depends on the answer.")
+    if any(has_cobol_terms(t) for t in (question, example, depends_on)):
+        raise RecordError("Write SME questions in business language, with no program, field or mainframe terms.")
+    gap = {
+        "id": gap_id("sme_question", question), "kind": "sme_question", "name": question, "what": question,
+        "why": depends_on, "example": example, "owner": "sme", "references": references or [],
+        "reference_count": len(references or []), "blocks": sorted(blocks or []), "urgency": "medium",
+        "status": "open", "source": "manual",
+    }
+    save_gap(ws, gap)
+    return gap
+
+
+def _require_gap(ws, gid):
+    gap = get_gap(ws, gid)
+    if gap is None:
+        raise RecordError("There's no item called %s. Run: python mma.py gaps" % gid)
+    return gap
+
+
+def _update_linked_rules(ws, gid, **changes):
+    for path in glob.glob(ws.path("requirements", "rules", "RULE-*.json")):
+        rule = read_json(path)
+        if rule.get("gap") == gid:
+            rule.update(changes)
+            write_json(path, rule)
+
+
+def answer_gap(ws, gid, by, answer, on=None, conflict=False):
+    gap = _require_gap(ws, gid)
+    if not by:
+        raise RecordError("Say who gave this answer, so it can be traced back to them.")
+    if not answer:
+        raise RecordError("The answer is empty.")
+    on = on or datetime.date.today().isoformat()
+    gap.update(status="conflict" if conflict else "answered", answer=answer, answered_by=by, answered_on=on)
+    save_gap(ws, gap)
+    if conflict:
+        _update_linked_rules(ws, gid, status="conflict", by=by, on=on)
+    else:
+        _update_linked_rules(ws, gid, status="confirmed_sme", by=by, on=on)
+    return gap
+
+
+def resolve_conflict(ws, gid, by, decision, on=None):
+    gap = _require_gap(ws, gid)
+    if not by:
+        raise RecordError("Say who made this decision. Only a person can settle a conflict between the code and an answer.")
+    if not decision:
+        raise RecordError("The decision is empty.")
+    on = on or datetime.date.today().isoformat()
+    gap.update(status="resolved", resolution="decided_by_person", resolved_by=by, decision=decision, resolved_on=on)
+    save_gap(ws, gap)
+    _update_linked_rules(ws, gid, status="confirmed_sme", by=by, on=on, decision=decision)
+    return gap
+
+
+def top_gaps(ws, limit=5, focus=None):
+    """The items most worth asking about now: current work first, then what blocks the most."""
+    focus = set(focus or [])
+    order = {"high": 0, "medium": 1, "low": 2}
+    gaps = [g for g in load_gaps(ws) if g["status"] in ("open", "conflict")]
+    gaps.sort(key=lambda g: (
+        0 if focus & set(g["blocks"]) else 1, order[g["urgency"]], 0 if g["status"] == "conflict" else 1,
+        -len(g["blocks"]), g["id"]))
+    return gaps[:limit]
