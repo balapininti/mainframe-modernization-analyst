@@ -13,7 +13,7 @@ from .jcl import parse_jcl
 from .masking import mask_statement
 from .sourcefile import ascii_upper, classify, decode_bytes, split_lines
 
-PARSER_VERSION = 5
+PARSER_VERSION = 6
 PROGRAM_KINDS = {"cobol_program", "assembler", "pli", "rexx", "easytrieve"}
 GROUPS = {
     "cobol_program": "program", "assembler": "program", "pli": "program", "rexx": "program", "easytrieve": "program",

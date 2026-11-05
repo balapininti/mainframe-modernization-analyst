@@ -1,11 +1,12 @@
 """Rules, requirements and test scenarios, each checked against the source it cites."""
 import glob
+import os
 import re
 import secrets
 
 from .config import read_json, write_json
 from .depmap import load_map
-from .gaps import RecordError, get_gap, has_cobol_terms, load_gaps
+from .gaps import RecordError, get_gap, has_cobol_terms, load_gaps, save_gap
 from .inventory import load_catalogue, load_facts
 from .logs import LogFieldRejected
 
@@ -82,7 +83,35 @@ def add_record(ws, kind, **fields):
         raise RecordError("Records can be rule, requirement or test.")
     record["id"] = _new_id(kind)
     write_json(_path(ws, kind, record["id"]), record)
+    if kind == "rule" and record["gap"]:
+        gap = get_gap(ws, record["gap"])
+        gap["blocks"] = sorted(set(gap["blocks"]) | {_member_node(members_entry) for members_entry in _cited_entries(ws, record)})
+        save_gap(ws, gap)
     return record
+
+
+def _cited_entries(ws, rule):
+    members = _members(ws)
+    return [members[c["member"]] for c in rule["evidence"] if c["member"] in members]
+
+
+def _member_node(entry):
+    prefix = {"copybook": "copybook:", "jcl_job": "job:", "jcl_proc": "proc:"}.get(entry["kind"], "program:")
+    return prefix + entry["name"]
+
+
+def delete_record(ws, rid):
+    """Remove a saved rule, requirement or test so it can be recorded again correctly."""
+    prefix = rid.partition("-")[0]
+    kinds = {v: k for k, v in PREFIXES.items()}
+    kind = kinds.get(prefix)
+    if kind is None or read_json(_path(ws, kind, rid)) is None:
+        raise RecordError("There's no record called %s." % rid)
+    if kind == "rule":
+        users = sorted(r["id"] for k in ("requirement", "test") for r in load_records(ws, k) if rid in r["rules"])
+        if users:
+            raise RecordError("%s is used by %s. Delete those first." % (rid, ", ".join(users)))
+    os.remove(_path(ws, kind, rid))
 
 
 def _build_rule(ws, text, status, evidence=None, slice=None, gap=None, by=None, on=None):
@@ -121,27 +150,53 @@ def _build_test(ws, given, when, then, rules=None, slice=None):
     return {"given": given, "when": when, "then": then, "rules": sorted(rules), "slice": slice}
 
 
-def _slice_programs(ws, name):
-    data = read_json(ws.path("inventory", "slices.json"), {"slices": []})
-    for item in data["slices"]:
-        if item["id"] == name:
-            return item["programs"]
-    raise RecordError("There's no slice called %s. Run: python mma.py slices" % name)
+def _follow(start, edges):
+    """Everything reachable from the start nodes. A flow is only complete if all of this is."""
+    by_source = {}
+    for edge in edges:
+        by_source.setdefault(edge["from"], []).append(edge["to"])
+    seen, pending = set(start), list(start)
+    while pending:
+        for target in by_source.get(pending.pop(), ()):
+            if target not in seen:
+                seen.add(target)
+                pending.append(target)
+    return seen
+
+
+def _flow_start(name, edges):
+    known = {e["from"] for e in edges} | {e["to"] for e in edges}
+    for prefix in ("transaction", "job", "proc", "program"):
+        node = "%s:%s" % (prefix, name)
+        if node in known:
+            return [node]
+    raise RecordError("%s isn't a known transaction, job or program." % name)
 
 
 def _nodes_for(ws, kind, name):
+    if kind == "program":
+        return {"program:" + name}
+    if kind == "copybook":
+        return {"copybook:" + name}
+    if kind not in ("slice", "flow", "job", "proc"):
+        raise RecordError("Status can be checked for a program, copybook, job, proc, flow or slice.")
+    edges = load_map(ws)["edges"]
     if kind == "slice":
-        return ["program:" + p for p in _slice_programs(ws, name)]
-    if kind in ("program", "flow"):
-        return ["program:" + name]
-    if kind in ("copybook", "job", "proc"):
-        return ["%s:%s" % (kind, name)]
-    raise RecordError("Status can be checked for a program, copybook, job, proc, flow or slice.")
+        data = read_json(ws.path("inventory", "slices.json"), {"slices": []})
+        found = [s for s in data["slices"] if s["id"] == name]
+        if not found:
+            raise RecordError("There's no slice called %s. Run: python mma.py slices" % name)
+        start = found[0]["entries"] + ["program:" + p for p in found[0]["programs"] + found[0]["shared_programs"]]
+    elif kind == "flow":
+        start = _flow_start(name, edges)
+    else:
+        start = ["%s:%s" % (kind, name)]
+    return _follow(start, edges)
 
 
 def status(ws, kind, name):
     name = name.upper() if kind != "slice" else name
-    nodes = set(_nodes_for(ws, kind, name))
+    nodes = _nodes_for(ws, kind, name)
     members = _members(ws)
     paths = set()
     for node in nodes:
@@ -160,7 +215,8 @@ def status(ws, kind, name):
 
 
 def _referenced(ws, nodes):
-    return any(e["to"] in nodes for e in load_map(ws)["edges"])
+    edges = load_map(ws)["edges"]
+    return any(e["to"] in nodes or e["from"] in nodes for e in edges)
 
 
 def impact(ws, gid):
@@ -182,21 +238,13 @@ def _dependency_hashes(ws, kind, name):
     catalogue = [m for m in load_catalogue(ws) if m.get("selected", True)]
     by_name = {}
     for entry in catalogue:
-        if entry["kind"] in ("cobol_program", "copybook"):
-            by_name[("program:" if entry["kind"] == "cobol_program" else "copybook:") + entry["name"]] = entry["sha"]
-    copies = {}
-    for edge in load_map(ws)["edges"]:
-        if edge["type"] == "copies":
-            copies.setdefault(edge["from"], []).append(edge["to"])
-    pending = list(_nodes_for(ws, kind, name))
-    hashes = {}
-    while pending:
-        node = pending.pop()
-        if node in hashes:
-            continue
-        hashes[node] = by_name.get(node)
-        pending.extend(copies.get(node, []))
-    return hashes
+        by_name[_member_node(entry)] = entry["sha"]
+        if entry["kind"] in ("jcl_job", "jcl_proc"):
+            by_name[("job:" if entry["kind"] == "jcl_job" else "proc:") + entry["name"]] = entry["sha"]
+    edges = load_map(ws)["edges"]
+    copies = [e for e in edges if e["type"] == "copies"]
+    nodes = _follow(_nodes_for(ws, kind, name), copies)
+    return {node: by_name.get(node) for node in sorted(nodes) if node.partition(":")[0] in ("program", "copybook", "job", "proc")}
 
 
 def record_analysis(ws, kind, name, output=None):

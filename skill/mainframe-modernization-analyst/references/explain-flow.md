@@ -2,7 +2,7 @@
 
 1. Log the start, with stage `deep_analysis` and category `explain_flow`.
 2. Run `mma.py flow <transaction, job, program or slice>`. Read the file it names.
-3. If it's marked incomplete, say so first and list what's missing.
+3. Run `mma.py status flow <NAME>`. If it's incomplete, say so first and list what's missing.
 4. For each main program in the flow, run `mma.py facts <NAME>`. Read source only for the parts that decide the path, using `mma.py source <NAME> --paragraph <PARA>`.
 5. Write `modernization/flows/<NAME>-explained.md`, following the flow template. Keep the generated Mermaid diagram's links unchanged. You can simplify it, but never add a link that isn't in the map.
 6. Finish with `mma.py analysis flow <NAME> --output <file>`.
@@ -15,5 +15,7 @@
 - What data is read and changed at each step.
 - What happens on failure.
 - Where online and batch meet, such as a table written online and read overnight.
+
+Read "Logic outside the programs" in the generated file. Utility steps and job conditions belong in your explanation, and rules from them cite the JCL lines.
 
 Separate what the map proves from what you inferred. Dotted arrows are inferred.

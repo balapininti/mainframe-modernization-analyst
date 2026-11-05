@@ -5,7 +5,7 @@ from .gaps import RecordError
 from .inventory import PROGRAM_KINDS, load_catalogue
 
 CALL_TYPES = {"calls", "links", "transfers_to", "loads"}
-STEP_TYPES = CALL_TYPES | {"runs_program", "runs_proc", "starts", "returns_to", "starts_transaction"}
+STEP_TYPES = CALL_TYPES | {"runs_program", "runs_proc", "runs_utility", "starts", "returns_to", "starts_transaction"}
 
 
 def _graph(edges):

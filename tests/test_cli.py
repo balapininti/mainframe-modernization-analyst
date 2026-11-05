@@ -169,6 +169,44 @@ class WorkflowTests(CliBase):
         self.assertIn("SLICE-", self.run_cli("summary").stdout)
 
 
+class UsabilityTests(CliBase):
+    def rule(self):
+        return json.loads(self.run_cli("record", "rule", "--text", "A rule.", "--status", "confirmed_code",
+                                       "--evidence", "BILLCALC:3200-APPLY-DISC:44-50", "--json").stdout)["id"]
+
+    def test_several_values_after_one_flag(self):
+        self.scan()
+        a, b = self.rule(), self.rule()
+        self.run_cli("record", "requirement", "--text", "The system shall do it.", "--rules", a, b)
+        self.run_cli("record", "test", "--given", "g", "--when", "w", "--then", "t", "--rules", a, "--rules", b)
+
+    def test_several_citations_after_one_flag(self):
+        self.scan()
+        self.run_cli("record", "rule", "--text", "A rule.", "--status", "inferred", "--evidence", "BILLCALC:3200-APPLY-DISC:44-50", "CUSTREC::3-4")
+
+    def test_wrong_usage_appears_in_logs_without_its_text(self):
+        self.scan()
+        self.run_cli("analysis", "SECRETKIND", "LOYREC", ok=False)
+        logged = "".join(open(p).read() for p in glob.glob(self.out("logs", "events-*.jsonl")))
+        self.assertIn("UsageError", logged)
+        self.assertNotIn("SECRETKIND", logged)
+
+    def test_correcting_saved_work(self):
+        self.scan()
+        rule = self.rule()
+        self.run_cli("record-delete", rule)
+        self.assertNotIn(rule, open(self.out("requirements", "RULES.md")).read())
+        gap = json.loads(self.run_cli("gap", "ask", "--question", "Worded badly?", "--example", "E.", "--depends-on", "D.", "--json").stdout)
+        self.run_cli("gap", "withdraw", gap["id"], "--reason", "Reworded")
+        self.assertNotIn("Worded badly", open(self.out("gaps", "SME_QUESTIONS.md")).read())
+
+    def test_question_text_not_repeated_in_list(self):
+        self.scan()
+        self.run_cli("gap", "ask", "--question", "Is this a question?", "--example", "E.", "--depends-on", "D.")
+        line = [l for l in self.run_cli("gaps", "--all").stdout.splitlines() if "Is this a question?" in l][0]
+        self.assertEqual(line.count("Is this a question?"), 1)
+
+
 class EncodingTests(CliBase):
     def test_non_ascii_source_works_on_a_machine_with_an_ascii_locale(self):
         path = os.path.join(self.root, "src", "cobol", "BILLCALC.cbl")

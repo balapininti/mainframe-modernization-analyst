@@ -31,7 +31,7 @@ STATUSES = {"confirmed_code", "inferred", "confirmed_sme", "ask_expert", "confli
 COMMANDS = {
     "init", "preflight", "inventory", "map", "slices", "flow", "facts", "source", "datadict", "plan", "gaps", "gap",
     "record", "validate", "render", "status", "stale", "impact", "log", "feedback", "logs", "slice", "analysis",
-    "summary", "scan", "mapping", "uncaught",
+    "summary", "scan", "mapping", "usage", "uncaught",
 }
 STAGES = {"inventory", "map", "slicing", "deep_analysis", "requirements", "data", "tests", "mapping", "gaps", "planning"}
 PROMPTS = {

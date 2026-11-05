@@ -1,8 +1,8 @@
 import os
 import unittest
 
-from mma.gaps import add_sme_question, answer_gap, get_gap, load_gaps, resolve_conflict, top_gaps
-from mma.records import RecordError, add_record, impact, load_records, record_analysis, stale, status, validate
+from mma.gaps import add_sme_question, answer_gap, get_gap, load_gaps, resolve_conflict, top_gaps, withdraw_question
+from mma.records import RecordError, add_record, delete_record, impact, load_records, record_analysis, stale, status, validate
 from mma.render import render_all
 
 from .helpers import sample_workspace
@@ -231,6 +231,105 @@ class StatusAndImpactTests(RecordBase):
             f.write("000100 01  M PIC X.\n")
         run_all(self.ws)
         self.assertEqual([s["name"] for s in stale(self.ws)], ["PRICECHK"])
+
+
+class EndToEndStatusTests(RecordBase):
+    def names(self, kind, name):
+        return {g["name"] for g in status(self.ws, kind, name)["blocking"]}
+
+    def test_job_is_incomplete_when_a_program_it_runs_is(self):
+        result = status(self.ws, "job", "NITEBILL")
+        self.assertEqual(result["state"], "incomplete")
+        self.assertIn("PRICELIB", self.names("job", "NITEBILL"))
+
+    def test_flow_from_a_transaction_follows_its_programs(self):
+        self.assertIn("MISSCPY", self.names("flow", "ORD1"))
+
+    def test_flow_from_a_job_follows_procs(self):
+        self.assertIn("NOPROC", self.names("flow", "NITEBILL"))
+
+    def test_flow_counts_unsupported_technology_it_reaches(self):
+        with open(os.path.join(self.src, "jcl", "IMSJOB.jcl"), "w") as f:
+            f.write("//IMSJOB JOB (A)\n//S1 EXEC PGM=IMSPGM\n")
+        run_all(self.ws)
+        self.assertIn("ims", self.names("flow", "IMSJOB"))
+
+    def test_slice_includes_shared_programs(self):
+        from mma.slices import build_slices
+        self.ws.config["hub_threshold"] = 1
+        self.ws.save()
+        build_slices(self.ws)
+        self.assertEqual(status(self.ws, "slice", "SLICE-ORD1")["state"], "incomplete")
+
+    def test_program_status_stays_about_that_program(self):
+        self.assertEqual(status(self.ws, "program", "ORPHAN")["state"], "complete")
+
+    def test_unknown_flow_gives_plain_error(self):
+        with self.assertRaisesRegex(RecordError, "NOPE"):
+            status(self.ws, "flow", "NOPE")
+
+    def test_jcl_change_marks_flow_analysis_stale(self):
+        record_analysis(self.ws, "flow", "NITEBILL")
+        self.assertEqual(stale(self.ws), [])
+        with open(os.path.join(self.src, "jcl", "NITEBILL.jcl"), "a") as f:
+            f.write("//* CHANGED\n")
+        run_all(self.ws)
+        self.assertEqual([s["name"] for s in stale(self.ws)], ["NITEBILL"])
+
+
+class LinkedQuestionTests(RecordBase):
+    def question(self):
+        return add_sme_question(self.ws, question="Is the region exclusion intended?", example="A region order pays full price.", depends_on="The discount.")
+
+    def test_linking_a_rule_makes_the_question_block_its_program(self):
+        gap = self.question()
+        self.rule(status="ask_expert", gap=gap["id"])
+        self.assertIn("program:BILLCALC", get_gap(self.ws, gap["id"])["blocks"])
+        self.assertEqual(status(self.ws, "program", "BILLCALC")["blocking"][0]["kind"] in ("sme_question", "missing_program", "dynamic_reference", "missing_vsam_def"), True)
+        self.assertIn(gap["id"], {g["id"] for g in status(self.ws, "program", "BILLCALC")["blocking"]})
+
+
+class CorrectionTests(RecordBase):
+    def test_delete_rule(self):
+        rule = self.rule()
+        delete_record(self.ws, rule["id"])
+        self.assertEqual(load_records(self.ws, "rule"), [])
+
+    def test_rule_in_use_cannot_be_deleted(self):
+        rule = self.rule()
+        req = add_record(self.ws, "requirement", text="The system shall discount.", rules=[rule["id"]])
+        with self.assertRaisesRegex(RecordError, req["id"]):
+            delete_record(self.ws, rule["id"])
+
+    def test_delete_requirement_and_test(self):
+        rule = self.rule()
+        req = add_record(self.ws, "requirement", text="The system shall discount.", rules=[rule["id"]])
+        test = add_record(self.ws, "test", given="g", when="w", then="t", rules=[rule["id"]])
+        delete_record(self.ws, req["id"])
+        delete_record(self.ws, test["id"])
+        delete_record(self.ws, rule["id"])
+
+    def test_delete_unknown_gives_plain_error(self):
+        with self.assertRaisesRegex(RecordError, "RULE-nope"):
+            delete_record(self.ws, "RULE-nope")
+
+    def test_withdrawn_question_leaves_the_lists(self):
+        gap = add_sme_question(self.ws, question="Badly worded?", example="An example.", depends_on="Something.")
+        withdraw_question(self.ws, gap["id"], "Reworded")
+        self.assertNotIn(gap["id"], {g["id"] for g in top_gaps(self.ws, 1000)})
+        render_all(self.ws)
+        self.assertNotIn("Badly worded", self.read("gaps", "SME_QUESTIONS.md"))
+
+    def test_detected_gap_cannot_be_withdrawn(self):
+        gap = [g for g in load_gaps(self.ws) if g["name"] == "MISSCPY"][0]
+        with self.assertRaisesRegex(RecordError, "scan"):
+            withdraw_question(self.ws, gap["id"], "No thanks")
+
+    def test_question_in_use_cannot_be_withdrawn(self):
+        gap = add_sme_question(self.ws, question="Linked?", example="An example.", depends_on="Something.")
+        rule = self.rule(status="ask_expert", gap=gap["id"])
+        with self.assertRaisesRegex(RecordError, rule["id"]):
+            withdraw_question(self.ws, gap["id"], "Reworded")
 
 
 class ValidateTests(RecordBase):

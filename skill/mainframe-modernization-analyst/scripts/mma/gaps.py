@@ -237,3 +237,18 @@ def top_gaps(ws, limit=5, focus=None):
         0 if focus & set(g["blocks"]) else 1, order[g["urgency"]], 0 if g["status"] == "conflict" else 1,
         -len(g["blocks"]), g["id"]))
     return gaps[:limit]
+
+
+def withdraw_question(ws, gid, reason):
+    """Take back a question the skill or a developer added. Detected items close only through a scan."""
+    gap = _require_gap(ws, gid)
+    if gap.get("source") != "manual":
+        raise RecordError("%s was found by the scan, so it closes when the next scan finds the item. It can't be withdrawn." % gid)
+    if not reason:
+        raise RecordError("Say why this is being withdrawn.")
+    linked = sorted(read_json(p)["id"] for p in glob.glob(ws.path("requirements", "rules", "RULE-*.json")) if read_json(p).get("gap") == gid)
+    if linked:
+        raise RecordError("%s is linked to %s. Delete or re-record those first." % (gid, ", ".join(linked)))
+    gap.update(status="withdrawn", resolution=reason)
+    save_gap(ws, gap)
+    return gap

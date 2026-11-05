@@ -144,6 +144,21 @@ class MapTests(unittest.TestCase):
         edge = [e for e in self.map["edges"] if e["to"] == "program:ORPHANX"][0]
         self.assertEqual(edge["line"], 18)
 
+    def test_utility_steps_are_on_the_map(self):
+        self.has("job:NITEBILL", "runs_utility", "utility:NITEBILL.STEP010.SORT")
+        self.has("utility:NITEBILL.STEP010.SORT", "reads", "dataset:PROD.ORDERS.DAILY")
+        self.has("utility:NITEBILL.STEP010.SORT", "writes", "dataset:PROD.ORDERS.SORTED")
+
+    def test_utility_system_datasets_and_program_running_utility_are_skipped(self):
+        self.assertFalse([e for e in self.map["edges"] if e["to"].startswith("utility:") and "IKJEFT" in e["to"]])
+
+    def test_datasets_of_a_missing_program_still_shown_as_inferred(self):
+        with open(os.path.join(self.src, "jcl", "XJOB.jcl"), "w") as f:
+            f.write("//XJOB JOB (A)\n//S1 EXEC PGM=GONEPGM\n//IN DD DSN=PROD.GONE.IN,DISP=SHR\n//SYSPRINT DD SYSOUT=*\n")
+        run_all(self.ws)
+        edge = [e for e in load_map(self.ws)["edges"] if e["to"] == "dataset:PROD.GONE.IN"][0]
+        self.assertEqual((edge["from"], edge["type"], edge["confidence"]), ("program:GONEPGM", "uses", "inferred"))
+
     def test_program_file_joined_to_dataset_through_dd(self):
         self.has("program:BILLCALC", "updates", "dataset:PROD.CUST.MASTER")
         self.has("program:BILLCALC", "writes", "dataset:PROD.BILL.OUT")

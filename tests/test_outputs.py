@@ -129,6 +129,26 @@ class FlowTests(unittest.TestCase):
             if m:
                 self.assertRegex(m.group(1), r"^n\d+$")
 
+    def test_flow_shows_utility_steps_and_their_data(self):
+        text = self.read(write_flow(self.ws, "NITEBILL"))
+        block = text.split("```mermaid")[1].split("```")[0]
+        for name in ("SORT", "PROD.ORDERS.DAILY", "PROD.ORDERS.SORTED"):
+            self.assertIn(name, block)
+
+    def test_flow_lists_logic_outside_programs_with_control_cards(self):
+        text = self.read(write_flow(self.ws, "NITEBILL"))
+        self.assertIn("Logic outside the programs", text)
+        self.assertIn("sort_step", text)
+        self.assertIn("jcl_cond", text)
+        self.assertIn("SORT FIELDS=(1,5,CH,A)", text)
+
+    def test_quote_setting_removes_control_cards_from_flow(self):
+        self.ws.config["quote_source"] = False
+        self.ws.save()
+        text = self.read(write_flow(self.ws, "NITEBILL"))
+        self.assertIn("sort_step", text)
+        self.assertNotIn("SORT FIELDS=(1,5,CH,A)", text)
+
     def test_unknown_entry_gives_plain_error(self):
         with self.assertRaisesRegex(RecordError, "NOPE"):
             write_flow(self.ws, "NOPE")
@@ -283,6 +303,14 @@ class PlanTests(unittest.TestCase):
         self.assertIn("suggestion", text.lower())
         self.assertIn("restart", text.lower())
         self.assertIn("NITEBILL", text)
+
+    def test_mapping_covers_utility_steps(self):
+        ws, _ = sample_workspace(self)
+        run_all(ws)
+        build_slices(ws)
+        with open(write_mapping(ws, "SLICE-NITEBILL")) as f:
+            text = f.read()
+        self.assertIn("SORT step", text)
 
     def test_mapping_covers_online_flow(self):
         ws, _ = sample_workspace(self)

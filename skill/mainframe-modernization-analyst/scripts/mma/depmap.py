@@ -15,6 +15,7 @@ SYSTEM_PROGRAM_PATTERN = re.compile(r"^(?:CEE|ILBO|IGZ|DFH|DFS|IEF|IEB|IEH|IKJEF
 SYSTEM_COPYBOOKS = {"SQLCA", "SQLDA", "SQLCODES", "DFHEIBLK", "DFHCOMMAREA", "CMQV", "CMQODV", "CMQMDV", "CMQPMOV", "CMQGMOV", "CMQTML"}
 SYSTEM_COPYBOOK_PATTERN = re.compile(r"^(?:DFH|CMQ)")
 CONTROL_DD = re.compile(r"^(?:SYS\w*IN|CTL\w*|CNTL\w*|PARM\w*|CONTROL\w*|SYMNAMES)$")
+NON_DATA_DD = re.compile(r"^(?:STEPLIB|JOBLIB|DBRMLIB|SYS\w*|CEE\w*|DFSVSAMP|IMS)$")
 CICS_READ = {"READ", "READNEXT", "READPREV", "STARTBR", "RESETBR", "ENDBR"}
 CICS_WRITE = {"WRITE"}
 CICS_UPDATE = {"REWRITE", "DELETE"}
@@ -131,6 +132,19 @@ def _cobol(builder, entry, facts, node, copybook_constants):
                 add(node, relation, "table:" + table, path, statement["line"])
 
 
+def _is_data_dd(dd):
+    return bool(dd["dsn"]) and not dd["dsn"].startswith("&&") and not NON_DATA_DD.match(dd["name"] or "") and not dd["member"]
+
+
+def _base_dsn(dd):
+    return re.sub(r"\([+-]?\d+\)$", "", dd["dsn"])
+
+
+def _dd_relation(dd):
+    disposition = (dd["disp"] or "").strip("()").split(",")[0].upper()
+    return {"SHR": "reads", "OLD": "reads", "NEW": "writes", "MOD": "writes"}.get(disposition, "uses")
+
+
 def _jcl(builder, entry, facts, program_facts):
     path = entry["path"]
     owner = ("job:" if facts["type"] == "job" else "proc:") + (facts["name"] or entry["name"])
@@ -138,12 +152,22 @@ def _jcl(builder, entry, facts, program_facts):
     for include in facts.get("includes", []):
         builder.edge(owner, "includes", "control:" + include["member"], path, include["line"])
     for step in facts["steps"]:
+        if step["program"] and builder.is_system_program(step["program"]) and not step["run_program"]:
+            utility = "utility:%s.%s.%s" % (facts["name"] or entry["name"], step["name"] or "STEP", step["program"])
+            builder.edge(owner, "runs_utility", utility, path, step["line"])
+            for dd in step["dds"]:
+                if _is_data_dd(dd):
+                    builder.edge(utility, _dd_relation(dd), "dataset:" + _base_dsn(dd), path, dd["line"], "inferred")
         programs = [(p, l) for p, l in ((step["program"], step["line"]), (step["run_program"], step["run_program_line"])) if p]
         for program, program_line in programs:
             if "&" in program:
                 builder.dynamic.append({"from": owner, "variable": program, "file": path, "line": program_line, "what": "program in a JCL step"})
                 continue
             builder.edge(owner, "runs_program", "program:" + program, path, program_line)
+            if program not in program_facts and not builder.is_system_program(program):
+                for dd in step["dds"]:
+                    if _is_data_dd(dd):
+                        builder.edge("program:" + program, "uses", "dataset:" + _base_dsn(dd), path, dd["line"], "inferred")
             for known in program_facts.get(program, {}).get("files", []):
                 for dd in step["dds"]:
                     if dd["name"] == known["ddname"] and dd["dsn"] and not dd["dsn"].startswith("&&"):

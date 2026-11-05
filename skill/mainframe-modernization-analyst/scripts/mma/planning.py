@@ -142,6 +142,15 @@ def write_mapping(ws, slice_id):
         rows.append(("BMS screen %s" % mapset, "UI view with request and response DTOs", "Screen field lengths often act as validation rules."))
     for job in item["jobs"]:
         rows.append(("JCL job %s" % job, "Spring Batch job", "Keep step order, return-code branching, and restart behaviour."))
+    for job in item["jobs"]:
+        for entry in members.values():
+            if entry["kind"] == "jcl_job" and (entry["name"] == job or load_facts(ws, entry).get("name") == job):
+                job_hazards = {h["type"] for h in load_facts(ws, entry)["hazards"]}
+                if "sort_step" in job_hazards:
+                    rows.append(("SORT step in %s" % job, "Database ordering, or a Spring Batch step with a processor", "Filters and reformatting in control cards are business rules. EBCDIC order differs from ASCII."))
+                if job_hazards & {"jcl_cond", "jcl_if"}:
+                    rows.append(("Step conditions in %s" % job, "Spring Batch flow decisions", "Keep which step runs after which return code."))
+                break
     for program in item["programs"]:
         rows.append(("Program %s" % program, "Service class", "Plan one service per business capability, not one per program, if they differ."))
     for program in item["shared_programs"]:

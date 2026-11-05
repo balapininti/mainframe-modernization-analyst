@@ -4,7 +4,7 @@ A rebuild can silently lose all of these. `mma.py facts <NAME>` flags most of th
 
 ## Logic outside COBOL
 
-- **SORT steps:** control cards can filter, reformat or summarize records. Treat them as business rules.
+- **SORT steps:** control cards can filter, reformat or summarize records. Treat them as business rules. Their positions count from 1, while the data dictionary's offsets count from 0, so position 9 is offset 8.
 - **IDCAMS steps:** file copies, deletes and repro steps can affect the outcome.
 - **JCL conditions:** `COND` and `IF` decide which steps run. Return codes are a contract between steps.
 - **Generation datasets:** `(+1)` and `(0)` define versions and retention.

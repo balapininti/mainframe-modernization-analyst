@@ -41,6 +41,7 @@ python .github/skills/mainframe-modernization-analyst/scripts/mma.py scan
 | `mma.py record rule --text .. --status .. --evidence ..` | Save a rule |
 | `mma.py record requirement --text .. --rules ..` | Save a requirement |
 | `mma.py record test --given .. --when .. --then .. --rules ..` | Save a test scenario |
+| `mma.py record-delete <id>` | Delete a saved record so it can be redone |
 | `mma.py validate` | Check records against current source |
 | `mma.py render` | Regenerate documents |
 
@@ -53,6 +54,7 @@ python .github/skills/mainframe-modernization-analyst/scripts/mma.py scan
 | `mma.py impact <id>` | Show what depends on an item |
 | `mma.py gap ask --question .. --example .. --depends-on ..` | Add an SME question |
 | `mma.py gap answer <id> --by .. --answer ..` | Record an answer (add `--conflict` if it disagrees with the code) |
+| `mma.py gap withdraw <id> --reason ..` | Take back a question added by mistake |
 | `mma.py gap resolve <id> --by .. --decision ..` | Record a person's decision on a conflict |
 
 ## Logs

@@ -9,3 +9,5 @@ Then add what the script can't know:
 3. Point out fields whose values are defined only by 88-levels or by hardcoded checks in programs.
 
 Offsets assume the copybook is complete. If it has nested `COPY` statements or `REPLACING`, or the layout looks wrong, say the offsets need checking. Java types are suggestions, and the architect decides.
+
+Finish with `mma.py analysis copybook <COPYBOOK> --output data/<COPYBOOK>-notes.md`.

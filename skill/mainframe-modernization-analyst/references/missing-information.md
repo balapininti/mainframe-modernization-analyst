@@ -25,7 +25,9 @@ mma.py gap ask --question "<plain question>" --example "<real example>" --depend
 
 Write in business language, with a concrete example and no program or field names. The command refuses mainframe terms. For example: "Orders from region 07 don't get the 5% discount. Is that still intended, and why?"
 
-Link it to the rule with `--gap <GAP-ID>` on `mma.py record rule`.
+Link it to the rule with `--gap <GAP-ID>` on `mma.py record rule`. The program the rule cites then shows as blocked by the question.
+
+To take back a badly worded question, run `mma.py gap withdraw <GAP-ID> --reason "<why>"`, then ask it again.
 
 ## Prepare the requests
 

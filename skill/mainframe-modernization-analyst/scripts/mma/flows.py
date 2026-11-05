@@ -3,13 +3,15 @@ import re
 
 from .config import read_json, write_text
 from .depmap import load_map
+from .facts import JAVA_NOTES
 from .gaps import RecordError, load_gaps
+from .inventory import load_catalogue, load_facts
 
 SHAPES = {
     "transaction": ('(["', '"])'), "job": ('[["', '"]]'), "proc": ('[["', '"]]'), "table": ('[("', '")]'),
-    "dataset": ('[("', '")]'), "cics_file": ('[("', '")]'), "mapset": ('[/"', '"/]'), "control": ('["', '"]'), "program": ('["', '"]'),
+    "utility": ('[["', '"]]'), "dataset": ('[("', '")]'), "cics_file": ('[("', '")]'), "mapset": ('[/"', '"/]'), "control": ('["', '"]'), "program": ('["', '"]'),
 }
-TYPE_WORDS = {"cics_file": "CICS file", "table": "DB2 table", "dataset": "dataset", "mapset": "screen map", "control": "control card", "transaction": "transaction", "job": "JCL job", "proc": "JCL proc", "program": "program"}
+TYPE_WORDS = {"cics_file": "CICS file", "table": "DB2 table", "dataset": "dataset", "mapset": "screen map", "control": "control card", "transaction": "transaction", "job": "JCL job", "proc": "JCL proc", "program": "program", "utility": "utility step"}
 DEFAULT_MAX_NODES = 60
 SKIPPED_EDGES = {"copies"}
 
@@ -50,6 +52,26 @@ def _collect(starts, by_source, max_nodes):
 
 def _safe_label(text):
     return re.sub(r'["<>\[\]{}|]', " ", text)
+
+
+def _outside_logic(ws, included):
+    """Job-level behaviour that a rebuild can lose because no program contains it."""
+    lines = []
+    for entry in load_catalogue(ws):
+        if entry["kind"] not in ("jcl_job", "jcl_proc") or not entry.get("selected", True):
+            continue
+        facts = load_facts(ws, entry)
+        owner = ("job:" if facts["type"] == "job" else "proc:") + (facts["name"] or entry["name"])
+        if owner not in included:
+            continue
+        for hazard in facts["hazards"]:
+            lines.append("- %s, `%s` line %d, %s: %s" % (owner, entry["path"], hazard["line"], hazard["type"], JAVA_NOTES.get(hazard["type"], "")))
+        if ws.config["quote_source"]:
+            for step in facts["steps"]:
+                for dd in step["dds"]:
+                    if dd["inline"]:
+                        lines += ["", "%s step %s, %s:" % (owner, step["name"], dd["name"]), "", "```text", dd["inline"], "```", ""]
+    return ["", "## Logic outside the programs", ""] + lines if lines else []
 
 
 def write_flow(ws, entry, max_nodes=DEFAULT_MAX_NODES):
@@ -95,6 +117,7 @@ def write_flow(ws, entry, max_nodes=DEFAULT_MAX_NODES):
             "## Evidence", "", "| From | Relationship | To | Where | Confidence |", "|------|--------------|----|-------|------------|"]
     for edge in drawn:
         doc.append("| %s | %s | %s | `%s` line %s | %s |" % (edge["from"], edge["type"], edge["to"], edge["file"], edge["line"], edge["confidence"]))
+    doc += _outside_logic(ws, included)
     path = ws.path("flows", re.sub(r"[^A-Za-z0-9._-]", "_", title) + ".md")
     write_text(path, "\n".join(doc) + "\n")
     return path

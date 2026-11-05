@@ -13,11 +13,11 @@ from .datadict import write_datadict
 from .depmap import build_map
 from .facts import program_facts, read_source
 from .flows import write_flow
-from .gaps import RecordError, add_sme_question, answer_gap, detect_gaps, load_gaps, resolve_conflict, top_gaps
+from .gaps import RecordError, add_sme_question, answer_gap, detect_gaps, load_gaps, resolve_conflict, top_gaps, withdraw_question
 from .inventory import run_inventory
 from .logs import LogFieldRejected, Logger, add_feedback, export_logs
 from .planning import write_mapping, write_plan
-from .records import add_record, impact, record_analysis, stale, status, validate
+from .records import add_record, delete_record, impact, record_analysis, stale, status, validate
 from .render import render_all
 from .slices import build_slices, load_slices, name_slice
 
@@ -31,7 +31,8 @@ def _ws():
 
 def _gap_line(gap):
     owner = "SME" if gap["owner"] == "sme" else "Mainframe team"
-    return "%s [%s, %s, %s] %s: %s (blocks %d)" % (gap["id"], gap["status"], gap["urgency"], owner, gap["name"], gap["what"], len(gap["blocks"]))
+    detail = gap["name"] if gap["kind"] == "sme_question" else "%s: %s" % (gap["name"], gap["what"])
+    return "%s [%s, %s, %s] %s (blocks %d)" % (gap["id"], gap["status"], gap["urgency"], owner, detail, len(gap["blocks"]))
 
 
 def _print_top(ws, limit=5):
@@ -165,6 +166,8 @@ def cmd_gap(args):
             path, _, line = reference.rpartition(":")
             references.append({"file": path, "line": int(line)} if line.isdigit() else {"file": reference, "line": None})
         gap = add_sme_question(ws, args.question, args.example, args.depends_on, references, args.blocks)
+    elif args.action == "withdraw":
+        gap = withdraw_question(ws, args.id, args.reason)
     elif args.action == "answer":
         gap = answer_gap(ws, args.id, args.by, args.answer, args.on, args.conflict)
     else:
@@ -207,6 +210,13 @@ def cmd_record(args):
         fields = dict(given=args.given, when=args.when, then=args.then, rules=args.rules, slice=args.slice)
     record = add_record(ws, args.kind, **fields)
     print(json.dumps(record, indent=1, sort_keys=True) if args.json else record["id"])
+
+
+def cmd_record_delete(args):
+    ws = _ws()
+    delete_record(ws, args.id)
+    render_all(ws)
+    print("Deleted %s." % args.id)
 
 
 def cmd_validate(_):
@@ -262,8 +272,19 @@ def cmd_logs(args):
     print("Nothing was sent. If you're happy with it, send the zip to the skill's maintainer.")
 
 
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        """Wrong usage can show a gap in the instructions, so log that it happened. Its text may hold names."""
+        if os.path.isdir(os.path.join(ROOT_DIR, "modernization")):
+            try:
+                _safe_logger().event("error", command="usage", error_type="UsageError", skill_file="cli.py", skill_line=0)
+            except (OSError, LogFieldRejected):
+                pass
+        super().error(message)
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(prog="mma.py", description="Mainframe modernization analysis. Read-only on source; results go to modernization/.")
+    parser = _Parser(prog="mma.py", description="Mainframe modernization analysis. Read-only on source; results go to modernization/.")
     sub = parser.add_subparsers(dest="command", metavar="command")
     sub.required = True
 
@@ -323,6 +344,10 @@ def build_parser():
     answer.add_argument("--on")
     answer.add_argument("--conflict", action="store_true", help="The answer disagrees with the code")
     answer.add_argument("--json", action="store_true")
+    withdraw = actions.add_parser("withdraw", help="Take back a question that was added by mistake")
+    withdraw.add_argument("id")
+    withdraw.add_argument("--reason", required=True)
+    withdraw.add_argument("--json", action="store_true")
     resolve = actions.add_parser("resolve", help="Record a person's decision on a conflict")
     resolve.add_argument("id")
     resolve.add_argument("--by", required=True)
@@ -343,9 +368,11 @@ def build_parser():
     item.add_argument("kind", choices=["rule", "requirement", "test"])
     for flag in ("--text", "--status", "--slice", "--gap", "--by", "--on", "--given", "--when", "--then"):
         item.add_argument(flag)
-    item.add_argument("--evidence", action="append", help="PROGRAM:PARAGRAPH:START-END")
-    item.add_argument("--rules", action="append")
+    item.add_argument("--evidence", action="extend", nargs="+", help="PROGRAM:PARAGRAPH:START-END. Give one or more")
+    item.add_argument("--rules", action="extend", nargs="+", help="One or more rule IDs")
     item.add_argument("--json", action="store_true")
+    item = add("record-delete", cmd_record_delete, "Delete a saved rule, requirement or test so it can be recorded again")
+    item.add_argument("id")
     add("validate", cmd_validate, "Check saved records against the current source")
     add("render", cmd_render, "Regenerate request lists, rules, requirements and traceability")
     item = add("log", cmd_log, "Record skill activity through the privacy allowlist")
@@ -366,7 +393,7 @@ def build_parser():
 
 
 def _log_name(command):
-    return {"slice-name": "slice"}.get(command, command)
+    return {"slice-name": "slice", "record-delete": "record"}.get(command, command)
 
 
 def _safe_logger():
