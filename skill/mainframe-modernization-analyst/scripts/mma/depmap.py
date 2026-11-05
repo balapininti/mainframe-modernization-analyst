@@ -118,12 +118,12 @@ def _jcl(builder, entry, facts, program_facts):
     for include in facts.get("includes", []):
         builder.edge(owner, "includes", "control:" + include["member"], path, include["line"])
     for step in facts["steps"]:
-        programs = [p for p in (step["program"], step["run_program"]) if p]
-        for program in programs:
+        programs = [(p, l) for p, l in ((step["program"], step["line"]), (step["run_program"], step["run_program_line"])) if p]
+        for program, program_line in programs:
             if "&" in program:
-                builder.dynamic.append({"from": owner, "variable": program, "file": path, "line": step["line"], "what": "program in a JCL step"})
+                builder.dynamic.append({"from": owner, "variable": program, "file": path, "line": program_line, "what": "program in a JCL step"})
                 continue
-            builder.edge(owner, "runs_program", "program:" + program, path, step["line"])
+            builder.edge(owner, "runs_program", "program:" + program, path, program_line)
             for known in program_facts.get(program, {}).get("files", []):
                 for dd in step["dds"]:
                     if dd["name"] == known["ddname"] and dd["dsn"] and not dd["dsn"].startswith("&&"):

@@ -54,7 +54,7 @@ def _params(text):
 
 
 def _statements(text):
-    """Yield (name, op, operands, line, inline_lines), joining continuations and inline data."""
+    """Yield (name, op, operands, line, inline_lines, first_inline_line), joining continuations and inline data."""
     lines = split_lines(text)
     i, total = 0, len(lines)
     while i < total:
@@ -68,7 +68,7 @@ def _statements(text):
             continue
         name, op, rest = m.group(1), ascii_upper(m.group(2)), m.group(3)
         if op not in KNOWN_OPS:
-            yield name, op, rest, number, None
+            yield name, op, rest, number, None, None
             continue
         operands = _operand_text(rest)
         while operands.endswith(",") and i < total:
@@ -81,6 +81,7 @@ def _statements(text):
             operands += _operand_text(next_line[2:].strip())
             i += 1
         inline = None
+        inline_start = i + 1
         if op == "DD" and re.match(r"^(\*|DATA)(,|$)", operands):
             inline = []
             while i < total:
@@ -92,7 +93,7 @@ def _statements(text):
                     break
                 inline.append(data[:71].rstrip())
                 i += 1
-        yield name, op, operands, number, inline
+        yield name, op, operands, number, inline, inline_start
 
 
 def parse_jcl(text):
@@ -105,7 +106,7 @@ def parse_jcl(text):
     def hazard(kind, line):
         result["hazards"].append({"type": kind, "line": line})
 
-    for name, op, operands, line, inline in _statements(text):
+    for name, op, operands, line, inline, inline_start in _statements(text):
         if op not in KNOWN_OPS:
             result["unrecognized"].append((op + " " + operands).strip())
         elif op == "JOB":
@@ -117,7 +118,7 @@ def parse_jcl(text):
         elif op == "EXEC":
             positional, keyed = _params(operands)
             step = {
-                "name": ascii_upper(name), "line": line, "program": None, "proc": None, "run_program": None,
+                "name": ascii_upper(name), "line": line, "program": None, "proc": None, "run_program": None, "run_program_line": None,
                 "parm": keyed.get("PARM"), "cond": keyed.get("COND"), "dds": [],
             }
             if "PGM" in keyed:
@@ -139,6 +140,7 @@ def parse_jcl(text):
                 parts = (step["parm"] or "").strip("'()").split(",")
                 if len(parts) > 1:
                     step["run_program"] = ascii_upper(parts[1])
+                    step["run_program_line"] = line
         elif op == "DD" and step is not None:
             positional, keyed = _params(operands)
             dd_name = ascii_upper(name) or last_dd
@@ -159,6 +161,7 @@ def parse_jcl(text):
                 run = re.search(r"\bRUN\s+PROGRAM\s*\(\s*([A-Z0-9#@$]+)", upper)
                 if run:
                     step["run_program"] = run.group(1)
+                    step["run_program_line"] = inline_start + upper.count("\n", 0, run.start())
                 for definition in re.finditer(r"\bDEFINE\s+(?:CLUSTER|AIX|ALTERNATEINDEX|PATH)\b[^)]*?\bNAME\s*\(\s*([^)\s]+)", upper):
                     if definition.group(1) not in result["defined_datasets"]:
                         result["defined_datasets"].append(definition.group(1))

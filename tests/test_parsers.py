@@ -181,6 +181,9 @@ class JclTests(unittest.TestCase):
     def test_db2_batch_program(self):
         self.assertEqual(self.steps["STEP040"]["run_program"], "ORPHANX")
 
+    def test_db2_batch_program_cites_its_own_line(self):
+        self.assertEqual(self.steps["STEP040"]["run_program_line"], 18)
+
     def test_hazards(self):
         types = {h["type"] for h in self.job["hazards"]}
         self.assertTrue({"sort_step", "jcl_cond", "jcl_if", "gdg"} <= types)

@@ -140,6 +140,10 @@ class MapTests(unittest.TestCase):
         self.has("job:NITEBILL", "runs_proc", "proc:BILLPROC")
         self.has("job:NITEBILL", "runs_program", "program:ORPHANX")
 
+    def test_db2_batch_program_edge_cites_the_run_line(self):
+        edge = [e for e in self.map["edges"] if e["to"] == "program:ORPHANX"][0]
+        self.assertEqual(edge["line"], 18)
+
     def test_program_file_joined_to_dataset_through_dd(self):
         self.has("program:BILLCALC", "updates", "dataset:PROD.CUST.MASTER")
         self.has("program:BILLCALC", "writes", "dataset:PROD.BILL.OUT")
