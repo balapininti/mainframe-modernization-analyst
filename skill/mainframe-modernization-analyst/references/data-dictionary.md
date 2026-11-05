@@ -8,6 +8,6 @@ Then add what the script can't know:
 2. Raise SME questions for codes and flags whose meaning isn't clear.
 3. Point out fields whose values are defined only by 88-levels or by hardcoded checks in programs.
 
-Offsets assume the copybook is complete. If it has nested `COPY` statements or `REPLACING`, or the layout looks wrong, say the offsets need checking. Java types are suggestions, and the architect decides.
+Fields marked "(unverified)" come after a nested `COPY` or a variable-size table, and the warnings at the top say why. Pass these on. Offsets aren't reliable there until someone checks them against the expanded layout. Java types are suggestions, and the architect decides.
 
 Finish with `mma.py analysis copybook <COPYBOOK> --output data/<COPYBOOK>-notes.md`.

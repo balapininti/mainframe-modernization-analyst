@@ -6,7 +6,8 @@ A rebuild can silently lose all of these. `mma.py facts <NAME>` flags most of th
 
 - **SORT steps:** control cards can filter, reformat or summarize records. Treat them as business rules. Their positions count from 1, while the data dictionary's offsets count from 0, so position 9 is offset 8.
 - **IDCAMS steps:** file copies, deletes and repro steps can affect the outcome.
-- **JCL conditions:** `COND` and `IF` decide which steps run. Return codes are a contract between steps.
+- **JCL conditions:** `COND` and `IF` decide which steps run. `COND` reads backwards: `COND=(4,LT)` skips the step when 4 is less than an earlier return code. Return codes are a contract between steps.
+- **PROC overrides:** a job can replace a dataset or symbol used inside a PROC, so read the job and the PROC together.
 - **Generation datasets:** `(+1)` and `(0)` define versions and retention.
 - **Scheduler:** order and dependencies between jobs usually aren't in the source.
 
@@ -17,9 +18,10 @@ A rebuild can silently lose all of these. `mma.py facts <NAME>` flags most of th
 - **OCCURS DEPENDING ON:** variable-length tables.
 - **88-levels:** named values. Often the only record of what a code means.
 - **Windowed dates:** two-digit years, and the rule that picks the century.
-- **Rounding versus truncation:** `COMPUTE` without `ROUNDED` cuts off digits. Intermediate results follow compiler rules too.
+- **Rounding versus truncation:** `COMPUTE` without `ROUNDED` cuts off digits on the final store. Intermediate results follow compiler rules too.
+- **COPY REPLACING:** the names in the copybook may not be the names the program uses.
 - **Overflow:** a result too big for its field can lose digits unless `ON SIZE ERROR` is used.
-- **EBCDIC sort order:** letters sort before digits, unlike ASCII. It changes sort results, range checks and key order.
+- **EBCDIC sort order:** letters sort before digits and lowercase before uppercase, unlike ASCII. Letters also aren't contiguous, so `>= 'A' AND <= 'Z'` admits some non-letters. This changes sort results, range checks and key order.
 - **Padding and comparison:** text is space-padded, and shorter values compare as if padded.
 - **Spaces in numeric fields:** old data may hold spaces or low values. Validate real data.
 

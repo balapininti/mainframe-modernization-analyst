@@ -4,14 +4,15 @@ import re
 from .config import read_json, write_text
 from .depmap import load_map
 from .facts import JAVA_NOTES
-from .gaps import RecordError, load_gaps
+from .gaps import RecordError
 from .inventory import load_catalogue, load_facts
+from .records import _follow, blocking_items
 
 SHAPES = {
     "transaction": ('(["', '"])'), "job": ('[["', '"]]'), "proc": ('[["', '"]]'), "table": ('[("', '")]'),
-    "utility": ('[["', '"]]'), "dataset": ('[("', '")]'), "cics_file": ('[("', '")]'), "mapset": ('[/"', '"/]'), "control": ('["', '"]'), "program": ('["', '"]'),
+    "utility": ('[["', '"]]'), "queue": ('[("', '")]'), "dataset": ('[("', '")]'), "cics_file": ('[("', '")]'), "mapset": ('[/"', '"/]'), "control": ('["', '"]'), "program": ('["', '"]'),
 }
-TYPE_WORDS = {"cics_file": "CICS file", "table": "DB2 table", "dataset": "dataset", "mapset": "screen map", "control": "control card", "transaction": "transaction", "job": "JCL job", "proc": "JCL proc", "program": "program", "utility": "utility step"}
+TYPE_WORDS = {"cics_file": "CICS file", "table": "DB2 table", "dataset": "dataset", "mapset": "screen map", "control": "control card", "transaction": "transaction", "job": "JCL job", "proc": "JCL proc", "program": "program", "utility": "utility step", "queue": "queue"}
 DEFAULT_MAX_NODES = 60
 SKIPPED_EDGES = {"copies"}
 
@@ -58,11 +59,11 @@ def _outside_logic(ws, included):
     """Job-level behaviour that a rebuild can lose because no program contains it."""
     lines = []
     for entry in load_catalogue(ws):
-        if entry["kind"] not in ("jcl_job", "jcl_proc") or not entry.get("selected", True):
+        if entry["kind"] not in ("jcl_job", "jcl_proc") or not entry.get("selected", True) or entry.get("parse_error"):
             continue
         facts = load_facts(ws, entry)
         owner = ("job:" if facts["type"] == "job" else "proc:") + (facts["name"] or entry["name"])
-        if owner not in included:
+        if owner not in included and not any("job:" + j in included for j in facts.get("jobs", [])):
             continue
         for hazard in facts["hazards"]:
             lines.append("- %s, `%s` line %d, %s: %s" % (owner, entry["path"], hazard["line"], hazard["type"], JAVA_NOTES.get(hazard["type"], "")))
@@ -101,7 +102,7 @@ def write_flow(ws, entry, max_nodes=DEFAULT_MAX_NODES):
     absent = [ids[n] for n in order if n in missing]
     if absent:
         lines.append("  class %s missing" % ",".join(absent))
-    blocking = [g for g in load_gaps(ws) if g["status"] in ("open", "conflict") and included & set(g["blocks"])]
+    blocking = blocking_items(ws, _follow(starts, data["edges"]))
     title = entry.upper() if not entry.startswith("SLICE-") else entry
     doc = ["# Flow: %s" % title, ""]
     if blocking:
@@ -113,7 +114,7 @@ def write_flow(ws, entry, max_nodes=DEFAULT_MAX_NODES):
     if trimmed:
         doc += ["**This diagram was trimmed** at %d nodes. Use a smaller slice or start from a program further down." % max_nodes, ""]
     doc += ["```mermaid"] + lines + ["```", "",
-            "Dashed boxes weren't found in the source. Dotted arrows were inferred from values in the code, not stated directly.", "",
+            "Dashed boxes weren't found in the source. Dotted arrows weren't stated directly: they were inferred from the code or given by a person (see Confidence below).", "",
             "## Evidence", "", "| From | Relationship | To | Where | Confidence |", "|------|--------------|----|-------|------------|"]
     for edge in drawn:
         doc.append("| %s | %s | %s | `%s` line %s | %s |" % (edge["from"], edge["type"], edge["to"], edge["file"], edge["line"], edge["confidence"]))

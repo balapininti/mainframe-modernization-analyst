@@ -1,6 +1,6 @@
 # Validation results
 
-Version 0.1.0, run 2026-11-04 on macOS with Python 3.14.
+Version 0.2.0, run 2026-11-04 on macOS with Python 3.14.
 
 ## What was tested
 
@@ -24,6 +24,19 @@ Version 0.1.0, run 2026-11-04 on macOS with Python 3.14.
 - `XCTL PROGRAM(TABLE(IDX))` dropped silently.
 - A shared first program leaving a slice empty.
 - An invalid Mermaid comment on long programs.
+
+## Independent checks
+
+- **Code review:** a separate reviewer tried real-world forms and found many silent errors in 0.1.0. All Critical and Important findings were fixed in 0.2.0, each with a test built from the reviewer's input. Findings left open are listed below.
+- **Skill run:** a fresh agent followed only `SKILL.md` on a small system with planted rules. It found them all, cited the right lines, marked unexplained rules "Ask an expert", wrote no Java, and reported its problems, which were then fixed. It ran on 0.1.0, and that agent isn't Copilot.
+
+## Known gaps left open
+
+- `COPY ... REPLACING` isn't applied to names, though it's flagged.
+- Job symbols passed into a PROC aren't applied to its steps, though overrides are flagged.
+- Nested programs in one file are merged for reporting.
+- A program name changed only by new `MOVE`s doesn't reopen an already answered item, though `stale` flags the analysis.
+- Pathological input, such as thousands of unterminated `EXEC` blocks, is slow, and there's no per-file timeout.
 
 ## What this doesn't prove
 

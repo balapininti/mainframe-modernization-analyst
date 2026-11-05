@@ -169,7 +169,7 @@ def cmd_gap(args):
     elif args.action == "withdraw":
         gap = withdraw_question(ws, args.id, args.reason)
     elif args.action == "answer":
-        gap = answer_gap(ws, args.id, args.by, args.answer, args.on, args.conflict)
+        gap = answer_gap(ws, args.id, args.by, args.answer, args.on, args.conflict, args.partial, args.target)
     else:
         gap = resolve_conflict(ws, args.id, args.by, args.decision, args.on)
     render_all(ws)
@@ -343,6 +343,8 @@ def build_parser():
     answer.add_argument("--answer", required=True)
     answer.add_argument("--on")
     answer.add_argument("--conflict", action="store_true", help="The answer disagrees with the code")
+    answer.add_argument("--partial", action="store_true", help="It doesn't settle the question, so keep the item open")
+    answer.add_argument("--target", action="extend", nargs="+", help="For a runtime name: the program or programs it can be")
     answer.add_argument("--json", action="store_true")
     withdraw = actions.add_parser("withdraw", help="Take back a question that was added by mistake")
     withdraw.add_argument("id")

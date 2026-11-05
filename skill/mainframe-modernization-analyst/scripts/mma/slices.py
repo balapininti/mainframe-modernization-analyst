@@ -5,7 +5,7 @@ from .gaps import RecordError
 from .inventory import PROGRAM_KINDS, load_catalogue
 
 CALL_TYPES = {"calls", "links", "transfers_to", "loads"}
-STEP_TYPES = CALL_TYPES | {"runs_program", "runs_proc", "runs_utility", "starts", "returns_to", "starts_transaction"}
+STEP_TYPES = CALL_TYPES | {"handles_abend", "runs_program", "runs_proc", "runs_utility", "starts", "returns_to", "starts_transaction"}
 
 
 def _graph(edges):
@@ -101,16 +101,33 @@ def build_slices(ws):
         clusters.setdefault(find(entry), []).append(entry)
     previous = read_json(ws.path("inventory", "slices.json"), {"slices": []})
     names = {s["id"]: s.get("business_name") for s in previous["slices"]}
+    previous_entries = {s["id"]: set(s["entries"]) for s in previous["slices"]}
+    used_ids = set()
+
+    def slice_id(group):
+        """Keep an existing ID when its entry points carry on, so names and saved work aren't lost."""
+        overlaps = sorted(((len(set(group) & entries), id_) for id_, entries in previous_entries.items() if set(group) & entries and id_ not in used_ids), key=lambda o: (-o[0], o[1]))
+        if overlaps:
+            chosen = overlaps[0][1]
+        else:
+            base = chosen = "SLICE-" + sorted(m.partition(":")[2] for m in group)[0]
+            suffix = 2
+            while chosen in used_ids or chosen in previous_entries:
+                chosen = "%s-%d" % (base, suffix)
+                suffix += 1
+        used_ids.add(chosen)
+        return chosen
+
     slices = []
     limit = ws.config["max_slice_programs"]
-    for members in clusters.values():
+    for _, members in sorted(clusters.items(), key=lambda c: sorted(c[1])[0]):
         nodes = set().union(*(reach[m] for m in members))
         count = sum(1 for n in nodes if n.startswith("program:"))
         groups = [[m] for m in members] if count > limit and len(members) > 1 else [members]
         for group in groups:
             group_nodes = set().union(*(reach[m] for m in group))
             hubs_used = set().union(*(hub_use[m] for m in group))
-            id_ = "SLICE-" + sorted(m.partition(":")[2] for m in group)[0]
+            id_ = slice_id(group)
             slices.append(_describe(id_, group, group_nodes, hubs_used, edges_from, names))
     slices.sort(key=lambda s: s["id"])
     assigned = {p for s in slices for p in s["programs"]}

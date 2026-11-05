@@ -61,7 +61,7 @@ def run(root, given_sources=None):
             print("PROBLEM: can't find the source folder '%s'. Check the path." % source)
             problems += 1
             continue
-        total, kinds = _sample(path, "cp037")
+        total, kinds = _sample(path, read_json(os.path.join(root, OUTPUT_DIR, "config.json"), {}).get("code_page", "cp037"))
         if not total:
             print("PROBLEM: the source folder '%s' is empty." % source)
             problems += 1

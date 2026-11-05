@@ -18,6 +18,7 @@ mma.py log --activity <activity> --stage <stage> --prompt-category <category> --
 
 - **activity:** `stage_started`, `stage_finished`, `reference_used`, `output_incomplete`
 - **stage:** `inventory`, `map`, `slicing`, `deep_analysis`, `requirements`, `data`, `tests`, `mapping`, `gaps`, `planning`
+- **reference:** `references/<name>.md`, for files in this skill only
 - **prompt-category:** `inventory`, `orient`, `explain_flow`, `explain_program`, `requirements`, `data`, `test_scenarios`, `mapping`, `gaps`, `requests`, `take_in_answers`, `planning`, `other`
 - **surface:** `vscode`, `copilot_cli`, `manual`, `unknown`
 

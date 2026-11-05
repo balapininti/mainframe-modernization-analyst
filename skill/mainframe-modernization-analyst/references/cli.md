@@ -53,7 +53,7 @@ python .github/skills/mainframe-modernization-analyst/scripts/mma.py scan
 | `mma.py status <kind> <name>` | Show complete or incomplete |
 | `mma.py impact <id>` | Show what depends on an item |
 | `mma.py gap ask --question .. --example .. --depends-on ..` | Add an SME question |
-| `mma.py gap answer <id> --by .. --answer ..` | Record an answer (add `--conflict` if it disagrees with the code) |
+| `mma.py gap answer <id> --by .. --answer ..` | Record an answer (add `--conflict` if it disagrees with the code, `--partial` if it doesn't settle it, `--target <program>` for a runtime name) |
 | `mma.py gap withdraw <id> --reason ..` | Take back a question added by mistake |
 | `mma.py gap resolve <id> --by .. --decision ..` | Record a person's decision on a conflict |
 

@@ -1,6 +1,7 @@
 """Complexity, migration order, dead-code candidates and Spring Boot mapping suggestions."""
 from .config import write_text
 from .depmap import load_map
+from .facts import copied_members
 from .inventory import load_catalogue, load_facts
 from .slices import CALL_TYPES, get_slice, load_slices
 
@@ -108,7 +109,7 @@ def write_plan(ws):
     data = load_map(ws)
     slices = load_slices(ws)["slices"]
     members = [m for m in load_catalogue(ws) if m.get("selected", True)]
-    facts_by_name = {m["name"]: load_facts(ws, m) for m in members if m["kind"] == "cobol_program"}
+    facts_by_name = {m["name"]: load_facts(ws, m) for m in members if m["kind"] == "cobol_program" and not m.get("parse_error")}
     scores = {name: _score(facts) for name, facts in facts_by_name.items()}
     order, cycles, shared = _migration_order(slices, data["edges"], scores)
     lines = ["# Complexity", "", "A rough guide for planning. Higher means more to untangle.", "", "| Program | Score | Band |", "|---------|-------|------|"]
@@ -133,8 +134,10 @@ def write_mapping(ws, slice_id):
     hazards = set()
     for program in item["programs"]:
         entry = members.get(program)
-        if entry and entry["kind"] == "cobol_program":
+        if entry and entry["kind"] == "cobol_program" and not entry.get("parse_error"):
             hazards.update(h["type"] for h in load_facts(ws, entry)["hazards"])
+            for copied in copied_members(ws, entry["name"]):
+                hazards.update(h["type"] for h in load_facts(ws, copied).get("hazards", []))
     rows = []
     for txn in item["transactions"]:
         rows.append(("CICS transaction %s" % txn, "REST controller and service", "One transaction can span several screens. Model each step explicitly."))
@@ -144,7 +147,7 @@ def write_mapping(ws, slice_id):
         rows.append(("JCL job %s" % job, "Spring Batch job", "Keep step order, return-code branching, and restart behaviour."))
     for job in item["jobs"]:
         for entry in members.values():
-            if entry["kind"] == "jcl_job" and (entry["name"] == job or load_facts(ws, entry).get("name") == job):
+            if entry["kind"] == "jcl_job" and not entry.get("parse_error") and (entry["name"] == job or job in load_facts(ws, entry).get("jobs", [])):
                 job_hazards = {h["type"] for h in load_facts(ws, entry)["hazards"]}
                 if "sort_step" in job_hazards:
                     rows.append(("SORT step in %s" % job, "Database ordering, or a Spring Batch step with a processor", "Filters and reformatting in control cards are business rules. EBCDIC order differs from ASCII."))

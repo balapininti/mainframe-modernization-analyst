@@ -2,7 +2,7 @@
 from .config import write_text
 from .gaps import load_gaps, top_gaps
 from .inventory import load_catalogue, read_member_text
-from .records import load_records
+from .records import load_records, requirement_confidence
 from .sourcefile import split_lines
 
 STATUS_WORDS = {
@@ -89,17 +89,17 @@ def _render_sme_questions(ws, gaps):
 
 
 def _render_answers(ws, gaps):
-    answered = [g for g in gaps if g.get("answered_by")]
+    answered = [g for g in gaps if g.get("answers") or g.get("answered_by")]
     lines = ["# Answers log", ""]
     if not answered:
         lines.append("No answers recorded yet.")
     for gap in answered:
         lines += [
             "## %s" % gap["id"], "", "- **Item:** %s" % gap["name"],
-            "- **Answer:** %s" % gap["answer"],
-            "- **From:** %s on %s" % (gap["answered_by"], gap["answered_on"]),
-            "- **Status:** %s" % gap["status"],
         ]
+        for item in gap.get("answers") or [{"answer": gap["answer"], "by": gap["answered_by"], "on": gap["answered_on"], "kind": "answer"}]:
+            lines.append("- **%s:** %s (%s on %s)" % ({"partial": "Partial answer", "conflict": "Answer that disagrees with the code"}.get(item["kind"], "Answer"), item["answer"], item["by"], item["on"]))
+        lines.append("- **Status:** %s" % gap["status"])
         if gap.get("resolved_by"):
             lines.append("- **Decision:** %s (%s on %s)" % (gap["decision"], gap["resolved_by"], gap["resolved_on"]))
         lines.append("")
@@ -142,12 +142,13 @@ def _render_rules(ws, rules):
     write_text(ws.path("requirements", "RULES.md"), "\n".join(lines))
 
 
-def _render_requirements(ws, requirements):
+def _render_requirements(ws, requirements, rules):
+    by_id = {r["id"]: r for r in rules}
     lines = ["# Requirements", ""]
     if not requirements:
         lines.append("No requirements recorded yet.")
     for req in requirements:
-        lines += ["## %s" % req["id"], "", req["text"], "", "- **Confidence:** %s" % STATUS_WORDS[req["confidence"]], "- **Rules:** %s" % ", ".join(req["rules"]), ""]
+        lines += ["## %s" % req["id"], "", req["text"], "", "- **Confidence:** %s" % STATUS_WORDS[requirement_confidence(req, by_id)], "- **Rules:** %s" % ", ".join(req["rules"]), ""]
     write_text(ws.path("requirements", "REQUIREMENTS.md"), "\n".join(lines))
 
 
@@ -190,6 +191,6 @@ def render_all(ws):
     requirements = load_records(ws, "requirement")
     tests = load_records(ws, "test")
     _render_rules(ws, rules)
-    _render_requirements(ws, requirements)
+    _render_requirements(ws, requirements, rules)
     _render_tests(ws, tests)
     _render_traceability(ws, rules, requirements, tests)

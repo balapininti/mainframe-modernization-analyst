@@ -3,7 +3,8 @@ from .config import write_json, write_text
 from .depmap import load_map
 from .gaps import RecordError
 from .inventory import load_catalogue, load_facts, read_member_text
-from .records import status
+from .masking import mask_statement
+from .records import _follow, status
 from .sourcefile import split_lines
 
 JAVA_NOTES = {
@@ -34,9 +35,12 @@ JAVA_NOTES = {
     "sort_control_logic": "SORT control cards can filter or reformat records. Read them as business rules.",
     "idcams_step": "IDCAMS manages files here. Check whether a copy or delete step matters to the outcome.",
     "ims_step": "An IMS step. IMS isn't analyzed by this version of the skill.",
-    "jcl_cond": "The step runs depending on earlier return codes. Reproduce this in the job flow.",
+    "jcl_cond": "COND works backwards: COND=(4,LT) SKIPS the step when 4 is less than an earlier return code. EVEN and ONLY also run after an abend. Don't read it as an IF.",
     "jcl_if": "The job branches on return codes. Reproduce this in the job flow.",
-    "gdg": "A generation dataset: each run makes a new version. Decide how versioning and retention work.",
+    "gdg": "A generation dataset: (+1) creates a new version, (0) reads the latest, (-1) the one before. Decide how versioning and retention work.",
+    "dd_override": "The job replaces a file used by a step inside a PROC. The PROC's own value doesn't apply here.",
+    "copy_replacing": "COPY REPLACING changes names as it's copied, so the names in the copybook may not be the ones this program uses.",
+    "nested_program": "This file holds more than one program. Their calls and paragraphs are listed together here.",
 }
 MAX_HAZARD_LINES = 20
 PARAGRAPH_FLOW_LIMIT = 60
@@ -59,14 +63,30 @@ def find_member(ws, name):
     raise RecordError("%s isn't in the inventory. It may be missing from the source: run python mma.py gaps" % name)
 
 
-def _hidden_behaviour(hazards):
-    grouped = {}
+def copied_members(ws, name):
+    """Copybooks a program pulls in, directly or through other copybooks."""
+    edges = [e for e in load_map(ws)["edges"] if e["type"] == "copies"]
+    nodes = _follow(["program:" + name], edges) - {"program:" + name}
+    wanted = {n.partition(":")[2] for n in nodes}
+    return [m for m in load_catalogue(ws) if m["kind"] == "copybook" and m["name"] in wanted and m.get("selected", True) and not m.get("parse_error")]
+
+
+def _hidden_behaviour(hazards, copied=()):
+    grouped, from_copybooks = {}, {}
     for hazard in hazards:
         grouped.setdefault(hazard["type"], []).append(hazard["line"])
-    return [
-        {"type": kind, "count": len(lines), "lines": lines[:MAX_HAZARD_LINES], "java_note": JAVA_NOTES.get(kind, "")}
-        for kind, lines in sorted(grouped.items())
-    ]
+    for name, items in copied:
+        for hazard in items:
+            from_copybooks.setdefault(hazard["type"], {}).setdefault(name, []).append(hazard["line"])
+    results = []
+    for kind in sorted(set(grouped) | set(from_copybooks)):
+        lines = grouped.get(kind, [])
+        item = {"type": kind, "count": len(lines), "lines": lines[:MAX_HAZARD_LINES], "java_note": JAVA_NOTES.get(kind, "")}
+        if kind in from_copybooks:
+            item["copybooks"] = {name: found[:MAX_HAZARD_LINES] for name, found in sorted(from_copybooks[kind].items())}
+            item["count"] += sum(len(v) for v in from_copybooks[kind].values())
+        results.append(item)
+    return results
 
 
 def _paragraph_flow(facts):
@@ -89,6 +109,8 @@ def _paragraph_flow(facts):
 
 def program_facts(ws, name):
     entry = find_member(ws, name)
+    if entry.get("parse_error"):
+        raise RecordError("%s couldn't be parsed, so there are no facts for it. Read it directly with: python mma.py source %s" % (entry["name"], entry["name"]))
     kind = entry["kind"]
     node = NODE_PREFIX.get(kind, "") + entry["name"]
     edges = load_map(ws)["edges"]
@@ -104,7 +126,8 @@ def program_facts(ws, name):
     facts = load_facts(ws, entry)
     if kind in ("cobol_program", "copybook"):
         result["copybooks"] = sorted({c["name"] for c in facts["copies"]})
-        result["hidden_behaviour"] = _hidden_behaviour(facts["hazards"])
+        copied = [(m["name"], load_facts(ws, m).get("hazards", [])) for m in copied_members(ws, entry["name"])] if kind == "cobol_program" else []
+        result["hidden_behaviour"] = _hidden_behaviour(facts["hazards"], copied)
         result["unrecognized_statements"] = facts["unrecognized"]
     if kind == "cobol_program":
         result["program_id"] = facts["program_id"]
@@ -121,8 +144,20 @@ def program_facts(ws, name):
              "control_cards": [d["inline"] for d in s["dds"] if d["inline"]]}
             for s in facts["steps"]
         ]
-    _save(ws, result)
+    _save(ws, _shareable(ws, result))
     return result
+
+
+def _shareable(ws, result):
+    """With quoted source turned off, saved facts keep structure but no statement text or job values."""
+    if ws.config["quote_source"]:
+        return result
+    saved = dict(result)
+    if "unrecognized_statements" in saved:
+        saved["unrecognized_statements"] = [mask_statement(s) for s in saved["unrecognized_statements"]]
+    if "steps" in saved:
+        saved["steps"] = [dict(s, parm=None, control_cards=[]) for s in saved["steps"]]
+    return saved
 
 
 def _save(ws, result):
@@ -138,7 +173,10 @@ def _save(ws, result):
         lines += ["## Paragraph flow", "", "```mermaid", result["paragraph_flow"], "```", ""]
     if result.get("hidden_behaviour"):
         lines += ["## Hidden behaviour to carry over", "", "| What | Lines | What to do |", "|------|-------|------------|"]
-        lines += ["| %s | %s | %s |" % (h["type"], ", ".join(str(n) for n in h["lines"]), h["java_note"]) for h in result["hidden_behaviour"]]
+        for h in result["hidden_behaviour"]:
+            where = [", ".join(str(n) for n in h["lines"])] if h["lines"] else []
+            where += ["%s: %s" % (name, ", ".join(str(n) for n in found)) for name, found in h.get("copybooks", {}).items()]
+            lines.append("| %s | %s | %s |" % (h["type"], "; ".join(where), h["java_note"]))
         lines.append("")
     write_text(ws.path("programs", result["name"] + ".facts.md"), "\n".join(lines))
 

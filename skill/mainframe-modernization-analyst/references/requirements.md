@@ -8,7 +8,7 @@ A rule is one business behaviour, tied to evidence. Save each one:
 mma.py record rule --text "<plain description>" --status <status> --evidence PROGRAM:PARAGRAPH:START-END --slice <SLICE-ID>
 ```
 
-Leave the paragraph empty for copybooks and JCL: `CUSTREC::44-44`, `NITEBILL::3-8`. Give several citations after `--evidence` if needed. The command checks that citations exist and refuses bad ones. Fix them by reading the source, never by loosening them.
+Leave the paragraph empty for copybooks and JCL: `CUSTREC::44-44`, `NITEBILL::3-8`. Give several citations after `--evidence` if needed. If a program and a job share a name, the command asks you to say which, as in `job/ORDERS::3-8`. The command checks that citations exist and refuses bad ones. Fix them by reading the source, never by loosening them.
 
 ## Choosing a status
 

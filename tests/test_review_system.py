@@ -379,7 +379,7 @@ class InventoryRobustnessTests(unittest.TestCase):
         real = inventory.parse_text
 
         def failing(kind, text):
-            if "BILLCALC" in text:
+            if "PROGRAM-ID. BILLCALC" in text:
                 raise ValueError("boom")
             return real(kind, text)
         with mock.patch.object(inventory, "parse_text", side_effect=failing):

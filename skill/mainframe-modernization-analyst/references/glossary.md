@@ -29,7 +29,7 @@
 | Pseudo-conversational | The task ends between screens | Stateless request handling |
 | REDEFINES | A second layout over the same bytes | A C union. Java has no equivalent |
 | Return code (RC) | A step's result: 0 is good, 4 a warning, 8 or more an error | Exit status |
-| SQLCODE | The DB2 result code: 0 is good, 100 is not found, negative is an error | SQL exceptions and empty results |
+| SQLCODE | The DB2 result code: 0 is good, 100 is not found, other positive values are warnings, negative is an error | SQL exceptions and empty results |
 | Syncpoint | A commit point in CICS | Transaction commit |
 | Transaction ID | A short code that starts a CICS program | URL route |
 | TSQ, TDQ | CICS temporary storage and transient data queues | Cache or message queue |

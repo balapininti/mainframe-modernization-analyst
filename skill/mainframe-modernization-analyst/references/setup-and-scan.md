@@ -39,6 +39,17 @@ Then propose business names for slices from their entry points, programs and dat
 
 Run `mma.py scan` after any change.
 
+## What the scripts don't do
+
+Tell the developer about these when they matter:
+
+- `COPY ... REPLACING` isn't applied, so renamed fields keep their copybook names.
+- Symbols passed from a job into a PROC aren't applied to the PROC's steps. `SET` and `PROC` defaults are.
+- Nested programs in one file are listed together.
+- A program name built by more than a plain `MOVE` is reported as an open item, not worked out.
+- `inventory/system-references.md` lists names treated as system-supplied. Check it if one might really be yours.
+- A file type in `ignore_extensions` is skipped, and the count is shown in `inventory/summary.md`.
+
 ## Results folder
 
 `inventory/` catalogue and map, `flows/` flows, `programs/` program detail, `requirements/` rules, requirements, tests and traceability, `data/` data dictionary, `mapping/` mappings and planning, `gaps/` requests and answers, `analysis/` change tracking, `logs/` privacy-safe logs.

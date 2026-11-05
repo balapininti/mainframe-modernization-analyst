@@ -20,8 +20,10 @@ Don't list hundreds of items in chat. Raise the one to three most important, say
 When the code can't answer a business question, add it:
 
 ```text
-mma.py gap ask --question "<plain question>" --example "<real example>" --depends-on "<what depends on the answer>" --reference <FILE:LINE>
+mma.py gap ask --question "<plain question>" --example "<real example>" --depends-on "<what depends on the answer>" --reference <FILE:LINE> --blocks program:<NAME>
 ```
+
+`--reference` and `--blocks` make the program show as incomplete until the question is answered.
 
 Write in business language, with a concrete example and no program or field names. The command refuses mainframe terms. For example: "Orders from region 07 don't get the 5% discount. Is that still intended, and why?"
 
@@ -42,6 +44,9 @@ The developer sends these. You don't.
 
 - **Files:** ask the developer to add them to the source folder, then run `mma.py scan`. Matching items close by themselves. Run `mma.py stale`, and redo only what it lists.
 - **Answers:** `mma.py gap answer <GAP-ID> --by "<person>" --answer "<their words>"`. Linked rules become `confirmed_sme`.
+- **Answers that don't settle it, such as "ask Bob":** add `--partial`. The item stays open and the answer is kept.
+- **The value of a runtime name:** add `--target <PROGRAM>`. The link then goes on the map, labeled as coming from an answer.
+- **Which duplicate is right:** this can't be answered here. Set `library_precedence` in `modernization/config.json`, then scan.
 - **Answers that contradict the code:** add `--conflict`. Tell the developer about the disagreement and show both sides. Don't choose. A person settles it with `mma.py gap resolve <GAP-ID> --by "<person>" --decision "<decision>"`.
 
 Never record an answer on behalf of someone who didn't give it.
