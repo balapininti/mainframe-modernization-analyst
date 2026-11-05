@@ -6,14 +6,14 @@ import os
 import re
 import time
 
-from .cobol import parse_cobol
+from .cobol import constants_table, parse_cobol
 from .config import SKIP_DIRS, ConfigError, read_json, write_json, write_text
 from .definitions import parse_definitions
 from .jcl import parse_jcl
 from .masking import mask_statement
 from .sourcefile import ascii_upper, classify, decode_bytes, split_lines
 
-PARSER_VERSION = 2
+PARSER_VERSION = 5
 PROGRAM_KINDS = {"cobol_program", "assembler", "pli", "rexx", "easytrieve"}
 GROUPS = {
     "cobol_program": "program", "assembler": "program", "pli": "program", "rexx": "program", "easytrieve": "program",
@@ -32,6 +32,7 @@ def parse_text(kind, text):
     if kind == "copybook":
         facts = parse_cobol(text)
         facts["dclgen_tables"] = sorted(set(re.findall(r"EXEC\s+SQL\s+DECLARE\s+(?:[A-Z0-9_#@$]+\.)?([A-Z0-9_#@$]+)\s+TABLE", ascii_upper(text))))
+        facts["constants"] = constants_table(text)
         return facts
     if kind in ("jcl_job", "jcl_proc"):
         return parse_jcl(text)

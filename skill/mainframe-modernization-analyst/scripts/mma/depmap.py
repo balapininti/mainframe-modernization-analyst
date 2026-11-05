@@ -47,17 +47,29 @@ class _Builder:
         self.technologies.setdefault(tech, set()).add(path)
 
 
-def _candidates(statement, key):
-    """Return ([(target, confidence)], variable) for a CICS option."""
+def _settle(candidates, unresolved, constants):
+    """Add values from copied copybooks. Return ([(target, confidence)], items still unknown)."""
+    found, remaining = set(candidates), []
+    for name in unresolved:
+        if name in constants:
+            found.update(constants[name])
+        else:
+            remaining.append(name)
+    return [(c, "inferred") for c in sorted(found)], remaining
+
+
+def _candidates(statement, key, constants):
+    """Return ([(target, confidence)], variable if any part of the value is unknown) for a CICS option."""
     options = statement["options"]
     if key not in options:
         return [], None
     if key in statement["resolved"]:
-        return [(c, "inferred") for c in statement["resolved"][key]], options[key]
+        targets, remaining = _settle(statement["resolved"][key], statement["unresolved"].get(key, []), constants)
+        return targets, options[key] if remaining else None
     return [(options[key], "confirmed")], None
 
 
-def _cobol(builder, entry, facts, node):
+def _cobol(builder, entry, facts, node, copybook_constants):
     path = entry["path"]
     add = builder.edge
     for tech in facts.get("technologies", []):
@@ -67,43 +79,51 @@ def _cobol(builder, entry, facts, node):
         add(node, "copies", "copybook:" + copy["name"], path, copy["line"])
     if entry["kind"] == "copybook":
         return
+    constants = {}
+    for copy in facts["copies"]:
+        constants.update(copybook_constants.get(copy["name"], {}))
+
+    def dynamic(variable, line, what):
+        builder.dynamic.append({"from": node, "variable": variable, "file": path, "line": line, "what": what})
+
     for call in facts["calls"]:
         if not call["dynamic"]:
             add(node, "calls", "program:" + call["target"], path, call["line"])
-        elif call["candidates"]:
-            for candidate in call["candidates"]:
-                add(node, "calls", "program:" + candidate, path, call["line"], "inferred")
-        else:
-            builder.dynamic.append({"from": node, "variable": call["variable"], "file": path, "line": call["line"], "what": "called program"})
+            continue
+        targets, remaining = _settle(call["candidates"], call["unresolved"], constants)
+        for target, confidence in targets:
+            add(node, "calls", "program:" + target, path, call["line"], confidence)
+        if remaining or not targets:
+            dynamic(call["variable"], call["line"], "called program")
     for statement in facts["cics"]:
         verb, line = statement["verb"], statement["line"]
         relation = {"LINK": "links", "XCTL": "transfers_to", "LOAD": "loads"}.get(verb)
         if relation:
-            targets, variable = _candidates(statement, "PROGRAM")
+            targets, variable = _candidates(statement, "PROGRAM", constants)
             for target, confidence in targets:
                 add(node, relation, "program:" + target, path, line, confidence)
-            if variable and not targets:
-                builder.dynamic.append({"from": node, "variable": variable, "file": path, "line": line, "what": "program in %s" % verb})
+            if variable:
+                dynamic(variable, line, "program in %s" % verb)
         if verb in ("RETURN", "START"):
-            targets, variable = _candidates(statement, "TRANSID")
+            targets, variable = _candidates(statement, "TRANSID", constants)
             for target, confidence in targets:
                 add(node, "returns_to" if verb == "RETURN" else "starts_transaction", "transaction:" + target, path, line, confidence)
-            if variable and not targets:
-                builder.dynamic.append({"from": node, "variable": variable, "file": path, "line": line, "what": "transaction"})
+            if variable:
+                dynamic(variable, line, "transaction")
         if verb in ("SEND", "RECEIVE"):
-            mapset, _ = _candidates(statement, "MAPSET")
+            mapset, _ = _candidates(statement, "MAPSET", constants)
             if not mapset:
-                mapset, _ = _candidates(statement, "MAP")
+                mapset, _ = _candidates(statement, "MAP", constants)
             for target, confidence in mapset:
                 add(node, "sends_map" if verb == "SEND" else "receives_map", "mapset:" + target, path, line, confidence)
         access = "reads" if verb in CICS_READ else "writes" if verb in CICS_WRITE else "updates" if verb in CICS_UPDATE else None
         if access:
             key = "FILE" if "FILE" in statement["options"] else "DATASET"
-            targets, variable = _candidates(statement, key)
+            targets, variable = _candidates(statement, key, constants)
             for target, confidence in targets:
                 add(node, access, "cics_file:" + target, path, line, confidence)
-            if variable and not targets:
-                builder.dynamic.append({"from": node, "variable": variable, "file": path, "line": line, "what": "CICS file"})
+            if variable:
+                dynamic(variable, line, "CICS file")
     for statement in facts["sql"]:
         if statement["access"]:
             relation = "reads" if statement["access"] == "read" else "writes"
@@ -146,6 +166,7 @@ def build_map(ws):
     builder = _Builder(ws, catalogue)
     facts_by_path = {m["path"]: load_facts(ws, m) for m in selected if m["kind"] not in ("unknown", "undecodable", "control_card", "assembler", "pli", "rexx", "easytrieve", "ims_def")}
     program_facts = {}
+    copybook_constants = {m["name"]: facts_by_path[m["path"]].get("constants", {}) for m in selected if m["kind"] == "copybook"}
     for entry in selected:
         if entry["kind"] == "cobol_program":
             facts = facts_by_path[entry["path"]]
@@ -171,9 +192,9 @@ def build_map(ws):
         if kind == "scheduler":
             has_scheduler = True
         if kind == "cobol_program":
-            _cobol(builder, entry, facts, "program:" + name)
+            _cobol(builder, entry, facts, "program:" + name, copybook_constants)
         elif kind == "copybook":
-            _cobol(builder, entry, facts, "copybook:" + name)
+            _cobol(builder, entry, facts, "copybook:" + name, copybook_constants)
             present["table"].update(facts.get("dclgen_tables", []))
         elif kind in ("jcl_job", "jcl_proc"):
             present["job" if facts["type"] == "job" else "proc"].add(facts["name"] or name)

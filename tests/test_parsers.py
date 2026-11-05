@@ -142,6 +142,40 @@ class CobolTests(unittest.TestCase):
     def test_values_that_cannot_be_names_are_ignored(self):
         self.assertNotIn("BAD WORDS HERE", parse_cobol(self.DYN)["cics"][0]["resolved"]["PROGRAM"])
 
+    PARTIAL = (
+        "       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n"
+        "       01 WS-PGM PIC X(8).\n       PROCEDURE DIVISION.\n       A.\n"
+        "           MOVE 'KNOWN' TO WS-PGM.\n           MOVE MENU-PGM(IDX) TO WS-PGM.\n"
+        "           EXEC CICS XCTL PROGRAM(WS-PGM) END-EXEC.\n           CALL WS-PGM.\n"
+    )
+
+    def test_unknown_source_marks_cics_target_as_partly_known(self):
+        stmt = parse_cobol(self.PARTIAL)["cics"][0]
+        self.assertEqual(stmt["resolved"]["PROGRAM"], ["KNOWN"])
+        self.assertEqual(stmt["unresolved"]["PROGRAM"], ["MENU-PGM"])
+
+    def test_unknown_source_marks_call_as_partly_known(self):
+        call = parse_cobol(self.PARTIAL)["calls"][0]
+        self.assertEqual((call["candidates"], call["unresolved"]), (["KNOWN"], ["MENU-PGM"]))
+
+    def test_fully_known_values_have_nothing_unresolved(self):
+        self.assertEqual(parse_cobol(self.DYN)["cics"][0]["unresolved"]["PROGRAM"], [])
+
+    def test_subscripted_cics_option_is_not_dropped(self):
+        text = ("       DATA DIVISION.\n       PROCEDURE DIVISION.\n       A.\n"
+                "           EXEC CICS XCTL PROGRAM(MENU-PGM(WS-OPT)) COMMAREA(C) END-EXEC.\n")
+        stmt = parse_cobol(text)["cics"][0]
+        self.assertEqual(stmt["options"]["PROGRAM"], "MENU-PGM")
+        self.assertEqual(stmt["unresolved"]["PROGRAM"], ["MENU-PGM"])
+        self.assertEqual(stmt["options"]["COMMAREA"], "C")
+
+    def test_length_of_and_nested_options_parse(self):
+        text = ("       PROCEDURE DIVISION.\n       A.\n"
+                "           EXEC CICS READ FILE('F1') INTO(REC(1:5))\n"
+                "                LENGTH(LENGTH OF REC) RESP(WS-R) END-EXEC.\n")
+        options = parse_cobol(text)["cics"][0]["options"]
+        self.assertEqual((options["FILE"], options["RESP"]), ("F1", "WS-R"))
+
     def test_decisions_counted(self):
         self.assertEqual(self.bill["metrics"]["decisions"], 4)
 

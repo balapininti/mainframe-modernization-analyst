@@ -107,6 +107,27 @@ class CardDemoAccuracy(unittest.TestCase):
             self.assertLessEqual(parsed_sql, sql, member["name"] + " SQL")
             self.assertGreaterEqual(parsed_sql + 40, sql, member["name"] + " SQL")
 
+    def test_every_program_transfer_gives_a_link_or_a_gap(self):
+        """Nothing may vanish silently: each LINK or XCTL produces a link, or an open item for its program."""
+        from mma.inventory import load_facts
+        dynamic = {(d["from"], d["line"]) for d in self.map["dynamic"]}
+        checked = 0
+        for member in self.cobol_files():
+            node = "program:" + member["name"]
+            for statement in load_facts(self.ws, member)["cics"]:
+                if statement["verb"] not in ("LINK", "XCTL"):
+                    continue
+                checked += 1
+                self.assertIn("PROGRAM", statement["options"], "%s line %d" % (member["name"], statement["line"]))
+                linked = any(e["from"] == node and e["type"] in ("links", "transfers_to") and
+                             (e["line"] == statement["line"] or e["count"] > 1) for e in self.map["edges"])
+                self.assertTrue(linked or (node, statement["line"]) in dynamic, "%s line %d" % (member["name"], statement["line"]))
+        self.assertGreater(checked, 10)
+
+    def test_menu_table_reported_as_runtime_value(self):
+        gaps = {g["name"] for g in load_gaps(self.ws) if g["kind"] == "dynamic_reference"}
+        self.assertIn("COMEN01C:CDEMO-MENU-OPT-PGMNAME", gaps)
+
     def test_jcl_program_steps_match_independent_scan(self):
         for member in self.catalogue:
             if member["kind"] not in ("jcl_job", "jcl_proc"):

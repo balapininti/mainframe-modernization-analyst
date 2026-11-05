@@ -83,7 +83,7 @@ def _paragraph_flow(facts):
                 label = "thru " + item["thru"] if item.get("thru") else kind
                 lines.append("  %s %s|%s| %s" % (source, arrow, label, target))
     if len(facts["paragraphs"]) > PARAGRAPH_FLOW_LIMIT:
-        lines.append("  %% trimmed: %d more paragraphs" % (len(facts["paragraphs"]) - PARAGRAPH_FLOW_LIMIT))
+        lines.append("  %%%% trimmed: %d more paragraphs" % (len(facts["paragraphs"]) - PARAGRAPH_FLOW_LIMIT))
     return "\n".join(lines)
 
 

@@ -59,6 +59,16 @@ class SliceTests(unittest.TestCase):
         self.assertEqual(result["shared_programs"], ["COMMON"])
         self.assertEqual(result["slices"][0]["shared_programs"], ["COMMON"])
 
+    def test_entry_program_stays_in_its_slice_even_when_widely_called(self):
+        files = {"MENU": pgm("MENU"), "APP.csd": " DEFINE TRANSACTION(MN00) GROUP(G) PROGRAM(MENU)\n"}
+        for i in range(6):
+            files["PGM%d" % i] = pgm("PGM%d" % i, "MENU")
+            files["JOB%d" % i] = job("JOB%d" % i, "PGM%d" % i)
+        ws = synthetic(self, files)
+        slices = {s["id"]: s for s in build_slices(ws)["slices"]}
+        self.assertEqual(slices["SLICE-MN00"]["programs"], ["MENU"])
+        self.assertEqual(slices["SLICE-JOB0"]["shared_programs"], ["MENU"])
+
     def test_oversized_cluster_split_by_entry_point(self):
         files = {"LIB": pgm("LIB"), "JA": job("JA", "A1"), "JB": job("JB", "B1"), "A1": pgm("A1", "LIB"), "B1": pgm("B1", "LIB")}
         ws = synthetic(self, files)
@@ -149,6 +159,12 @@ class FactsTests(unittest.TestCase):
         text = program_facts(self.ws, "BILLCALC")["paragraph_flow"]
         self.assertIn("flowchart", text)
         self.assertIn("3200-APPLY-DISC", text)
+
+    def test_trimmed_paragraph_flow_uses_a_valid_mermaid_comment(self):
+        paragraphs = "".join("       P%03d.\n           GOBACK.\n" % i for i in range(70))
+        ws = synthetic(self, {"BIGPGM": "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. BIGPGM.\n       PROCEDURE DIVISION.\n" + paragraphs})
+        last = program_facts(ws, "BIGPGM")["paragraph_flow"].splitlines()[-1]
+        self.assertTrue(last.strip().startswith("%%"), last)
 
     def test_hazards_explained_for_java(self):
         checks = program_facts(self.ws, "BILLCALC")["hidden_behaviour"]

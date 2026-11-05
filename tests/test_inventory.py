@@ -247,6 +247,36 @@ class GapTests(unittest.TestCase):
         self.assertEqual(len(items), len(load_gaps(self.ws)))
 
 
+class PartlyKnownTargetTests(unittest.TestCase):
+    HEAD = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. MENUPGM.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n"
+
+    def build(self, program, copybook=None):
+        ws, src = sample_workspace(self)
+        with open(os.path.join(src, "cobol", "MENUPGM"), "w") as f:
+            f.write(self.HEAD + program)
+        if copybook:
+            with open(os.path.join(src, "copy", "MENUCPY"), "w") as f:
+                f.write(copybook)
+        run_all(ws)
+        return ws
+
+    def test_partly_known_target_keeps_inferred_link_and_raises_a_gap(self):
+        ws = self.build("       01 WS-PGM PIC X(8).\n       PROCEDURE DIVISION.\n       A.\n"
+                        "           MOVE 'KNOWN' TO WS-PGM.\n           MOVE MENU-PGM(I) TO WS-PGM.\n"
+                        "           EXEC CICS XCTL PROGRAM(WS-PGM) END-EXEC.\n")
+        edge = [e for e in load_map(ws)["edges"] if e["to"] == "program:KNOWN"][0]
+        self.assertEqual(edge["confidence"], "inferred")
+        self.assertIn(("dynamic_reference", "MENUPGM:WS-PGM"), {(g["kind"], g["name"]) for g in load_gaps(ws)})
+
+    def test_constant_in_copybook_settles_the_target(self):
+        ws = self.build("       COPY MENUCPY.\n       PROCEDURE DIVISION.\n       A.\n"
+                        "           EXEC CICS XCTL PROGRAM(LIT-PGM) END-EXEC.\n",
+                        "       01 LIT-PGM PIC X(8) VALUE 'FROMCPY'.\n")
+        edge = [e for e in load_map(ws)["edges"] if e["to"] == "program:FROMCPY"][0]
+        self.assertEqual(edge["confidence"], "inferred")
+        self.assertNotIn(("dynamic_reference", "MENUPGM:LIT-PGM"), {(g["kind"], g["name"]) for g in load_gaps(ws)})
+
+
 class DuplicateTests(unittest.TestCase):
     def setUp(self):
         self.ws, self.src = sample_workspace(self)

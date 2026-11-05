@@ -100,7 +100,7 @@ def _value_table(src):
         literal = _strip_literal(src.text[begin + m.start(2):begin + m.end(2)])
         values.setdefault(m.group(1), set()).add(literal)
     scan = src.masked[end:]
-    for m in re.finditer(r"\bMOVE\s+(['\"]_*['\"]|" + WORD + r")\s+TO\s+", scan):
+    for m in re.finditer(r"\bMOVE\s+(['\"]_*['\"]|" + WORD + r")(?:\s*\([^)]*\))?(?:\s+(?:OF|IN)\s+" + WORD + r")?(?:\s*\([^)]*\))?\s+TO\s+", scan):
         token = m.group(1)
         source = None
         if token[0] in "'\"":
@@ -122,22 +122,36 @@ def _value_table(src):
 
 
 def _value_candidates(variable, src, cache):
-    """Program-name-shaped literals a data item can hold, from its VALUE and the MOVEs into it."""
+    """Return (name-shaped literals the item can hold, items feeding it whose values aren't visible here)."""
     if "__table__" not in cache:
         cache["__table__"] = _value_table(src)
     values, moves = cache["__table__"]
-    found, seen, pending = set(), set(), [variable]
+    found, seen, pending, unresolved = set(), set(), [variable], set()
     while pending:
         name = pending.pop()
         if name in seen:
             continue
         seen.add(name)
-        found.update(values.get(name, ()))
         entry = moves.get(name)
+        if name not in values and not entry:
+            unresolved.add(name)
+            continue
+        found.update(values.get(name, ()))
         if entry:
             found.update(entry["literals"])
             pending.extend(entry["sources"])
-    return sorted(v for v in (ascii_upper(f or "") for f in found) if _NAME_VALUE.fullmatch(v))
+    return sorted(v for v in (ascii_upper(f or "") for f in found) if _NAME_VALUE.fullmatch(v)), sorted(unresolved)
+
+
+def constants_table(text):
+    """Literal VALUEs declared in a copybook, so programs that copy it can resolve names through it."""
+    src = logical_source(text)
+    values = {}
+    for m in re.finditer(r"\b\d{1,2}\s+(" + WORD + r")\b[^.]*?\bVALUE\s+(?:IS\s+)?(['\"]_*['\"])", src.masked):
+        literal = ascii_upper(_strip_literal(src.text[m.start(2):m.end(2)]) or "")
+        if m.group(1) != "FILLER" and _NAME_VALUE.fullmatch(literal):
+            values.setdefault(m.group(1), []).append(literal)
+    return {k: sorted(set(v)) for k, v in values.items()}
 
 
 def _calls(src, cache):
@@ -148,8 +162,30 @@ def _calls(src, cache):
         if token[0] in "'\"":
             calls.append({"target": ascii_upper(_strip_literal(src.text[m.start(1):m.end(1)]) or ""), "dynamic": False, "line": line})
         else:
-            calls.append({"target": None, "dynamic": True, "variable": token, "candidates": _value_candidates(token, src, cache), "line": line})
+            candidates, unresolved = _value_candidates(token, src, cache)
+            calls.append({"target": None, "dynamic": True, "variable": token, "candidates": candidates, "unresolved": unresolved, "line": line})
     return calls
+
+
+_OPTION_NAME = _plain_re.compile(WORD + r"\s*\(")
+_BASE_NAME = _plain_re.compile(WORD)
+
+
+def _option_spans(body):
+    """Yield (option, start, end) for top-level OPTION(value), allowing nested parentheses in the value."""
+    position = 0
+    while True:
+        found = _OPTION_NAME.search(body, position)
+        if not found:
+            return
+        depth, index = 1, found.end()
+        while index < len(body) and depth:
+            depth += {"(": 1, ")": -1}.get(body[index], 0)
+            index += 1
+        if depth:
+            return
+        yield found.group(0).rstrip(" (\n\t"), found.end(), index - 1
+        position = index
 
 
 def _cics(src, cache, unrecognized):
@@ -160,19 +196,20 @@ def _cics(src, cache, unrecognized):
         verb = re.match(r"[A-Z0-9-]*", words[0]).group(0) if words else ""
         if verb not in KNOWN_CICS:
             unrecognized.append(" ".join(("EXEC CICS " + body).split()))
-        options, resolved = {}, {}
-        for opt in re.finditer(r"\b(" + WORD + r")\s*\(\s*([^()]*?)\s*\)", body):
-            start = m.start(1) + opt.start(2)
-            raw = src.text[start:m.start(1) + opt.end(2)]
+        options, resolved, partly = {}, {}, {}
+        for key, inner_start, inner_end in _option_spans(body):
+            start = m.start(1) + inner_start
+            raw = src.text[start:m.start(1) + inner_end]
             literal = _strip_literal(raw)
-            key = opt.group(1)
             if literal is not None:
                 options[key] = ascii_upper(literal)
             else:
-                options[key] = opt.group(2)
+                value = body[inner_start:inner_end].strip()
+                base = _BASE_NAME.match(value)
+                options[key] = base.group(0) if base else value
                 if key in ("PROGRAM", "TRANSID", "FILE", "DATASET", "MAP", "MAPSET"):
-                    resolved[key] = _value_candidates(opt.group(2), src, cache)
-        statements.append({"verb": verb, "line": src.line_at(m.start()), "options": options, "resolved": resolved, "words": words[:2]})
+                    resolved[key], partly[key] = _value_candidates(options[key], src, cache)
+        statements.append({"verb": verb, "line": src.line_at(m.start()), "options": options, "resolved": resolved, "unresolved": partly, "words": words[:2]})
     return statements
 
 

@@ -25,11 +25,13 @@ def _hubs(edges, threshold):
 
 
 def _reach(start, graph, hubs):
-    seen, pending, used_hubs = set(), [start], set()
+    """Follow links from an entry point, stopping at shared programs other than the one it starts."""
+    own = {t for t in graph.get(start, ()) if t in hubs}
+    seen, pending, used_hubs = set(own), [start] + sorted(own), set()
     while pending:
         node = pending.pop()
         for target in graph.get(node, ()):
-            if target in hubs:
+            if target in hubs and target not in own:
                 used_hubs.add(target)
             elif target not in seen:
                 seen.add(target)
