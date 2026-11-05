@@ -169,6 +169,31 @@ class WorkflowTests(CliBase):
         self.assertIn("SLICE-", self.run_cli("summary").stdout)
 
 
+class EncodingTests(CliBase):
+    def test_non_ascii_source_works_on_a_machine_with_an_ascii_locale(self):
+        path = os.path.join(self.root, "src", "cobol", "BILLCALC.cbl")
+        with open(path, "rb") as f:
+            data = f.read().replace(b"3200-APPLY-DISC.\n", b"3200-APPLY-DISC.\n", 1)
+        lines = data.split(b"\n")
+        lines[44] = "004500*    caf\u00e9 discount note".encode("utf-8")
+        with open(path, "wb") as f:
+            f.write(b"\n".join(lines))
+        env = dict(os.environ, LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0", PYTHONIOENCODING="ascii")
+
+        def run(*args):
+            done = subprocess.run([sys.executable, CLI] + list(args), cwd=self.root, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return done
+
+        run("init", "--source", "src")
+        run("scan")
+        run("record", "rule", "--text", "Caf\u00e9 rule", "--status", "confirmed_code", "--evidence", "BILLCALC:3200-APPLY-DISC:44-50")
+        run("render")
+        run("source", "BILLCALC", "--paragraph", "3200-APPLY-DISC")
+        with open(self.out("requirements", "RULES.md"), encoding="utf-8") as f:
+            self.assertIn("caf\u00e9", f.read())
+
+
 class LogFlowTests(CliBase):
     def test_copilot_activity_logged_through_allowlist(self):
         self.scan()

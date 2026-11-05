@@ -124,6 +124,11 @@ class CodeRuleTests(unittest.TestCase):
                     top = name.split(".")[0]
                     self.assertTrue(top in sys.stdlib_module_names or top == "mma", "%s imports %s" % (path, name))
 
+    def test_syntax_works_on_the_oldest_supported_python(self):
+        for path in self.modules():
+            with open(path) as f:
+                ast.parse(f.read(), feature_version=(3, 9))
+
     def test_no_network_modules(self):
         banned = {"socket", "http", "urllib", "ftplib", "smtplib", "ssl", "requests"}
         for path in self.modules():

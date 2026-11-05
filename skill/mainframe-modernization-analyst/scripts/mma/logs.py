@@ -112,7 +112,7 @@ class LogFieldRejected(ValueError):
 def skill_version():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "VERSION")
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return "unknown"
@@ -143,11 +143,11 @@ class Logger:
     def _load_salt(self):
         path = os.path.join(self.outdir, ".salt")
         if os.path.exists(path):
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 return f.read().strip()
         salt = secrets.token_hex(16)
         os.makedirs(self.outdir, exist_ok=True)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(salt + "\n")
         return salt
 
@@ -165,7 +165,7 @@ class Logger:
             raise LogFieldRejected("log event refused by the allowlist: %s" % event_type)
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "a") as f:
+            with open(self.path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(event, sort_keys=True) + "\n")
         except OSError:
             pass
@@ -192,14 +192,14 @@ def add_feedback(outdir, rating, category, text):
     if not isinstance(rating, int) or not 1 <= rating <= 5:
         raise LogFieldRejected("rating must be 1 to 5")
     os.makedirs(os.path.join(outdir, "logs"), exist_ok=True)
-    with open(os.path.join(outdir, "logs", "feedback.jsonl"), "a") as f:
+    with open(os.path.join(outdir, "logs", "feedback.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps({"ts": _now(), "rating": rating, "category": category, "text": text, "skill_version": skill_version()}, sort_keys=True) + "\n")
 
 
 def _read_events(outdir):
     kept, dropped = [], 0
     for path in sorted(glob.glob(os.path.join(outdir, "logs", "events-*.jsonl"))):
-        with open(path, errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
                     event = json.loads(line)
@@ -237,7 +237,7 @@ def export_logs(outdir, include_feedback=False):
     feedback_lines = []
     feedback_path = os.path.join(outdir, "logs", "feedback.jsonl")
     if include_feedback and os.path.exists(feedback_path):
-        with open(feedback_path) as f:
+        with open(feedback_path, encoding="utf-8") as f:
             feedback_lines = [l.rstrip("\n") for l in f if l.strip()]
     target = os.path.join(outdir, "logs-export")
     os.makedirs(target, exist_ok=True)
@@ -245,7 +245,7 @@ def export_logs(outdir, include_feedback=False):
     zip_path = os.path.join(target, "mma-logs-%s.zip" % stamp)
     preview_path = os.path.join(target, "mma-logs-%s-preview.md" % stamp)
     preview = _preview(events, dropped, feedback_lines, include_feedback)
-    with open(preview_path, "w") as f:
+    with open(preview_path, "w", encoding="utf-8") as f:
         f.write(preview)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("events.jsonl", "".join(json.dumps(e, sort_keys=True) + "\n" for e in events))

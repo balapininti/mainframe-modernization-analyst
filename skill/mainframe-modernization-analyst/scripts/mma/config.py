@@ -43,7 +43,7 @@ class Workspace:
         if not os.path.exists(path):
             raise ConfigError(
                 "No analysis has been set up in %s. Run: python mma.py init --source <folder with the mainframe code>" % os.path.abspath(root))
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             saved = json.load(f)
         config = dict(DEFAULTS)
         config.update(saved)
@@ -73,7 +73,7 @@ class Workspace:
 
 def write_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1, sort_keys=True)
         f.write("\n")
 
@@ -81,13 +81,13 @@ def write_json(path, data):
 def read_json(path, default=None):
     if not os.path.exists(path):
         return default
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
 def write_text(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(text)
 
 

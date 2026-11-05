@@ -102,7 +102,7 @@ def cmd_slice_name(args):
 
 def cmd_summary(_):
     ws = _ws()
-    with open(ws.path("inventory", "summary.md")) as f:
+    with open(ws.path("inventory", "summary.md"), encoding="utf-8") as f:
         print(f.read())
     slices = load_slices(ws)
     print("Slices: %d" % len(slices["slices"]))
@@ -374,6 +374,9 @@ def _safe_logger():
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     args = build_parser().parse_args(argv)
     started = time.time()
     has_output = os.path.isdir(os.path.join(ROOT_DIR, "modernization"))
