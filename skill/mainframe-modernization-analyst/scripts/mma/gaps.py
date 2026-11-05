@@ -22,6 +22,7 @@ KIND_TEXT = {
     "unsupported_technology": ("A decision on how to analyze this technology", "These files aren't parsed by this version of the skill, so anything they do is missing from the map."),
     "undecodable_files": ("Readable copies of these files", "They couldn't be read as text. They may be binary data, or need a different code page."),
     "unrecognized_files": ("Confirmation of what these files are", "They didn't match any known mainframe source type, so they aren't in the analysis."),
+    "parse_failures": ("A look at why these files couldn't be parsed", "The skill failed on them, so anything they do is missing from the map. Please report this through a log export."),
     "duplicate_member": ("Which copy is the right one", "Copies with the same name differ, so links to this name can't be trusted until a rule is set."),
 }
 
@@ -103,7 +104,10 @@ def _detect(ws):
     undecodable = [m["path"] for m in catalogue if m["kind"] == "undecodable"]
     if undecodable:
         add(_new("undecodable_files", "ALL", [{"file": p, "line": None} for p in undecodable], [], urgency="medium"))
-    unknown = [m["path"] for m in catalogue if m["kind"] == "unknown"]
+    failed = [m["path"] for m in catalogue if m.get("parse_error")]
+    if failed:
+        add(_new("parse_failures", "ALL", [{"file": p, "line": None} for p in failed], [], urgency="high"))
+    unknown = [m["path"] for m in catalogue if m["kind"] == "unknown" and not m.get("parse_error")]
     if unknown:
         add(_new("unrecognized_files", "ALL", [{"file": p, "line": None} for p in unknown], [], urgency="low"))
     for duplicate in load_duplicates(ws):
@@ -129,20 +133,37 @@ def save_gap(ws, gap):
     write_json(_item_path(ws, gap["id"]), gap)
 
 
+PRESERVED = ("status", "answer", "answered_by", "answered_on", "answers", "targets", "resolution", "resolved_by", "decision", "resolved_on")
+
+
+def _where(gap):
+    return sorted((r["file"], r.get("line") or 0) for r in gap["references"])
+
+
 def detect_gaps(ws):
     detected = _detect(ws)
     existing = {g["id"]: g for g in load_gaps(ws)}
+    present = {m["name"] for m in load_catalogue(ws)}
     for gid, gap in detected.items():
         old = existing.get(gid)
         if old and (old["status"] in ("answered", "conflict") or old.get("resolved_by")):
-            for key in ("status", "answer", "answered_by", "answered_on", "resolution", "resolved_by", "decision", "resolved_on"):
+            for key in PRESERVED:
                 if key in old:
                     gap[key] = old[key]
+            if gap["status"] == "answered" and set(_where(gap)) - set(_where(old)):
+                gap["status"] = "open"  # new places need it, so the old answer may no longer cover this
+        elif old and old.get("answers"):
+            gap["answers"] = old["answers"]
         save_gap(ws, gap)
     for gid, old in existing.items():
         if gid not in detected and old.get("source") == "detected" and old["status"] == "open":
             old["status"] = "resolved"
-            old["resolution"] = "found_in_source"
+            if not old["kind"].startswith("missing_"):
+                old["resolution"] = "no_longer_detected"
+            elif old["name"] in present:
+                old["resolution"] = "found_in_source"
+            else:
+                old["resolution"] = "no_longer_referenced"
             save_gap(ws, old)
     gaps = load_gaps(ws)
     by_kind, by_owner = {}, {}
@@ -159,13 +180,14 @@ def detect_gaps(ws):
 
 
 
-COBOL_TERMS = re.compile(
-    r"\b\d{3,4}-[A-Z]|\bWS-[A-Z]|\bPERFORM\b|\bCOMP-3\b|\bPIC\b|\bMOVE\b|\bCOPYBOOK\b|\bEXEC\s+(?:CICS|SQL)\b|\bJCL\b|\bVSAM\b"
-    r"|\bCOBOL\b|\bREDEFINES\b|\bGO TO\b|\bSQLCODE\b|\bDFH[A-Z]|\bCOMMAREA\b")
+COBOL_TERMS = re.compile(r"\b\d{3,4}-[A-Z]|\bPERFORM\b|\bPIC\b|\bMOVE\b|\bGO TO\b")  # uppercase only: these are also English words
+MAINFRAME_TERMS = re.compile(
+    r"\bWS-[A-Z]|\bCOMP-3\b|\bCOPYBOOK\b|\bEXEC\s+(?:CICS|SQL)\b|\bJCL\b|\bVSAM\b|\bCOBOL\b|\bREDEFINES\b|\bSQLCODE\b|\bDFH[A-Z]|\bCOMMAREA\b",
+    re.I)
 
 
 def has_cobol_terms(text):
-    return bool(COBOL_TERMS.search(text or ""))
+    return bool(COBOL_TERMS.search(text or "") or MAINFRAME_TERMS.search(text or ""))
 
 
 def add_sme_question(ws, question, example, depends_on, references=None, blocks=None):
@@ -174,6 +196,15 @@ def add_sme_question(ws, question, example, depends_on, references=None, blocks=
         raise RecordError("An SME question needs the question, a real example, and what depends on the answer.")
     if any(has_cobol_terms(t) for t in (question, example, depends_on)):
         raise RecordError("Write SME questions in business language, with no program, field or mainframe terms.")
+    existing = get_gap(ws, gap_id("sme_question", question))
+    if existing and existing["status"] in ("answered", "conflict", "resolved"):
+        raise RecordError("This was already asked as %s, and its status is %s. Its answer is kept." % (existing["id"], existing["status"]))
+    if existing and existing["status"] == "open":
+        existing["blocks"] = sorted(set(existing["blocks"]) | set(blocks or []))
+        existing["references"] += [r for r in references or [] if r not in existing["references"]]
+        existing["reference_count"] = len(existing["references"])
+        save_gap(ws, existing)
+        return existing
     gap = {
         "id": gap_id("sme_question", question), "kind": "sme_question", "name": question, "what": question,
         "why": depends_on, "example": example, "owner": "sme", "references": references or [],
@@ -199,24 +230,34 @@ def _update_linked_rules(ws, gid, **changes):
             write_json(path, rule)
 
 
-def answer_gap(ws, gid, by, answer, on=None, conflict=False):
+def answer_gap(ws, gid, by, answer, on=None, conflict=False, partial=False, targets=None):
+    """Record what a person said. `partial` keeps the item open; `targets` puts a runtime name on the map."""
     gap = _require_gap(ws, gid)
     if not by:
         raise RecordError("Say who gave this answer, so it can be traced back to them.")
     if not answer:
         raise RecordError("The answer is empty.")
+    if gap["status"] == "conflict":
+        raise RecordError("%s is a conflict between the code and an earlier answer. Only `gap resolve` can settle it." % gid)
+    if gap["kind"] == "duplicate_member":
+        raise RecordError("Set the rule in `library_precedence` in modernization/config.json, then scan again. That way the map uses the right copy.")
     on = on or datetime.date.today().isoformat()
+    gap.setdefault("answers", []).append({"by": by, "on": on, "answer": answer, "kind": "conflict" if conflict else "partial" if partial else "answer"})
+    if partial:
+        save_gap(ws, gap)
+        return gap
     gap.update(status="conflict" if conflict else "answered", answer=answer, answered_by=by, answered_on=on)
+    if targets:
+        gap["targets"] = sorted(t.upper() for t in targets)
     save_gap(ws, gap)
-    if conflict:
-        _update_linked_rules(ws, gid, status="conflict", by=by, on=on)
-    else:
-        _update_linked_rules(ws, gid, status="confirmed_sme", by=by, on=on)
+    _update_linked_rules(ws, gid, status="conflict" if conflict else "confirmed_sme", by=by, on=on)
     return gap
 
 
 def resolve_conflict(ws, gid, by, decision, on=None):
     gap = _require_gap(ws, gid)
+    if gap["status"] != "conflict":
+        raise RecordError("%s isn't a conflict. Only a conflict between the code and an answer can be resolved here." % gid)
     if not by:
         raise RecordError("Say who made this decision. Only a person can settle a conflict between the code and an answer.")
     if not decision:

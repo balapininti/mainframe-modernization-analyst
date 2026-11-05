@@ -25,7 +25,7 @@ class cobol_regex:
     """
 
     S, M = re.S, re.M
-    _BOUNDARY = r"(?:(?<![A-Z0-9_-])(?=[A-Z0-9_-])|(?<=[A-Z0-9_-])(?![A-Z0-9_-]))"
+    _BOUNDARY = r"(?:(?<![A-Z0-9_#@$-])(?=[A-Z0-9_#@$-])|(?<=[A-Z0-9_#@$-])(?![A-Z0-9_#@$-]))"
     _cache = {}
     escape = staticmethod(re.escape)
 
@@ -103,10 +103,9 @@ def decode_bytes(data, code_page="cp037", record_length=80):
 _LEVEL_LINE = re.compile(
     r"^(?:.{6}[ ])?\s*\d{1,2}\s+[A-Z0-9:_-]+\s*(?:PIC\b|PICTURE\b|VALUE\b|REDEFINES\b|OCCURS\b|COMP|USAGE\b|\.)", re.M)
 _RULES = [
-    ("rexx", re.compile(r"\A\s*/\*.*REXX", re.S | re.M)),
     ("bms", re.compile(r"\bDFHM(?:SD|DI)\b")),
     ("cobol_program", re.compile(r"\bPROGRAM-ID\b|\bIDENTIFICATION\s+DIVISION\b|^\s*\S{0,6}\s*ID\s+DIVISION\b", re.M)),
-    ("csd", re.compile(r"\bDEFINE\s+(?:TRANSACTION|PROGRAM|FILE|MAPSET|TDQUEUE|TSMODEL|PROFILE|DB2CONN|DB2ENTRY)\s*\(")),
+    ("csd", re.compile(r"\bDEFINE\s+(?:TRANS(?:ACTION)?|PROG(?:RAM)?|FILE|MAPSET|TDQUEUE|TSMODEL|PROFILE|DB2CONN|DB2ENTRY)\s*\(")),
     ("idcams", re.compile(r"\bDEFINE\s+(?:CLUSTER|ALTERNATEINDEX|AIX|PATH|GDG|NONVSAM)\b|\bREPRO\s")),
     ("ims_def", re.compile(r"\b(?:PSBGEN|DBDGEN)\b")),
     ("pli", re.compile(r"\bPROCEDURE\s+OPTIONS\s*\(")),
@@ -120,13 +119,29 @@ _RULES = [
 ]
 
 
+def _without_comments(upper):
+    """Comments must never decide what a file is."""
+    kept = []
+    for line in split_lines(upper):
+        if line.startswith(("//*", "*")):
+            continue
+        if not line.startswith("//") and len(line) > 6 and line[6] in "*/":
+            continue
+        kept.append(line)
+    return kept
+
+
 def classify(text, name=""):
     upper = ascii_upper(text)
-    significant = [l for l in split_lines(upper) if l.strip() and not l.startswith("//*")]
+    if re.match(r"\A\s*/\*.*REXX", upper):
+        return "rexx"
+    lines = _without_comments(upper)
+    significant = [l for l in lines if l.strip() and not l.startswith("/*")]
+    body = "\n".join(lines)
     if significant and significant[0].startswith("//"):
-        return "jcl_job" if re.search(r"^//\S*\s+JOB\b", upper, re.M) else "jcl_proc"
+        return "jcl_job" if re.search(r"^//\S*\s+JOB\b", body, re.M) else "jcl_proc"
     for kind, pattern in _RULES:
-        if pattern.search(upper):
+        if pattern.search(body):
             return kind
     return EXTENSION_KINDS.get(os.path.splitext(name)[1].lower(), "unknown")
 

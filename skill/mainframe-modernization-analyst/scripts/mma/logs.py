@@ -24,7 +24,7 @@ FILE_KINDS = {
 GAP_KINDS = {
     "missing_copybook", "missing_program", "missing_proc", "missing_bms_map", "missing_db2_ddl", "missing_vsam_def",
     "missing_cics_def", "missing_control_card", "missing_schedule", "dynamic_reference", "unsupported_technology",
-    "undecodable_files", "unrecognized_files", "duplicate_member", "sme_question",
+    "undecodable_files", "unrecognized_files", "duplicate_member", "sme_question", "parse_failures",
 }
 OWNERS = {"mainframe_team", "sme"}
 STATUSES = {"confirmed_code", "inferred", "confirmed_sme", "ask_expert", "conflict"}
@@ -39,6 +39,10 @@ PROMPTS = {
     "gaps", "requests", "take_in_answers", "planning", "other",
 }
 FEEDBACK_CATEGORIES = {"wrong_result", "missed_something", "too_long", "too_technical", "crash", "install", "other"}
+REFERENCE_FILES = {
+    "setup-and-scan", "explain-flow", "explain-program", "requirements", "data-dictionary", "test-scenarios", "spring-boot-mapping",
+    "planning", "missing-information", "logs-and-feedback", "prompts", "cli", "hidden-behaviour", "glossary",
+}
 SCHEMA_VERSION = 1
 
 
@@ -98,7 +102,7 @@ SCHEMA = {
     "activity": {
         "activity": _enum({"stage_started", "stage_finished", "reference_used", "output_incomplete"}),
         "stage": _enum(STAGES), "prompt_category": _enum(PROMPTS),
-        "reference": _matches(r"references/[a-z0-9_-]+\.md"), "item": _HASH, "surface": _enum({"vscode", "copilot_cli", "manual", "unknown"}),
+        "reference": _enum({"references/%s.md" % n for n in REFERENCE_FILES}), "item": _HASH, "surface": _enum({"vscode", "copilot_cli", "manual", "unknown"}),
     },
     "validation": {"issues": _number, "by_status": _counts(STATUSES), "rules": _number, "requirements": _number, "tests": _number},
     "export": {"events": _number, "dropped": _number, "included_feedback": _boolean},

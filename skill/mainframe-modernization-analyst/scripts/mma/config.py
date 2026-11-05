@@ -1,4 +1,5 @@
 """Workspace settings and paths. All results live in <project>/modernization/."""
+import codecs
 import json
 import os
 
@@ -12,7 +13,7 @@ DEFAULTS = {
     "quote_source": True,
     "library_precedence": [],
     "ignore_extensions": [
-        ".md", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf", ".xlsx", ".docx", ".pptx", ".zip", ".gz", ".jar",
+        ".md", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf", ".xlsx", ".docx", ".pptx", ".jar",
         ".class", ".py", ".java", ".sh", ".json", ".yml", ".yaml", ".html", ".css", ".js", ".ts", ".log",
     ],
     "system_programs": [],
@@ -23,7 +24,7 @@ DEFAULTS = {
     "jobs": 0,
 }
 SKIP_DIRS = {".git", ".github", ".svn", ".vscode", ".idea", ".superpowers", "node_modules", "__pycache__", OUTPUT_DIR}
-GITIGNORE = "logs/\nlogs-export/\ninventory/cache/\n"
+GITIGNORE = "logs/\nlogs-export/\ninventory/cache/\n.salt\n"
 
 
 class ConfigError(Exception):
@@ -65,7 +66,10 @@ class Workspace:
         return [os.path.normpath(os.path.join(self.root, s)) for s in self.config["source_roots"]]
 
     def rel(self, path):
-        return os.path.relpath(path, self.root).replace(os.sep, "/")
+        try:
+            return os.path.relpath(path, self.root).replace(os.sep, "/")
+        except ValueError:  # on Windows, source on another drive has no relative path
+            return os.path.abspath(path).replace(os.sep, "/")
 
     def abs(self, relative):
         return os.path.normpath(os.path.join(self.root, relative))
@@ -98,9 +102,17 @@ def init_workspace(root, sources, code_page=None, record_length=None, quote_sour
         full = os.path.normpath(os.path.join(root, source))
         if not os.path.isdir(full):
             raise ConfigError("Can't find the source folder '%s'. Check the path and try again." % source)
-        relative.append(os.path.relpath(full, root).replace(os.sep, "/"))
+        try:
+            relative.append(os.path.relpath(full, root).replace(os.sep, "/"))
+        except ValueError:  # on Windows, source on another drive has no relative path
+            relative.append(full.replace(os.sep, "/"))
     if not relative:
         raise ConfigError("Tell me where the mainframe code is: --source <folder>.")
+    if code_page:
+        try:
+            codecs.lookup(code_page)
+        except LookupError:
+            raise ConfigError("'%s' isn't a code page Python knows. Common ones are cp037 and cp1140." % code_page)
     existing = read_json(os.path.join(root, OUTPUT_DIR, "config.json"), {})
     config = dict(DEFAULTS)
     config.update(existing)
